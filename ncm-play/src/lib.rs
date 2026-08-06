@@ -3,7 +3,7 @@ pub use config::*;
 
 use anyhow::{anyhow, Result};
 use gstreamer::ClockTime;
-use gstreamer_play::{gst, Play, PlayVideoRenderer};
+use gstreamer_play::{gst, Play, PlayMessage, PlayVideoRenderer};
 use log::{debug, trace};
 use ncm_api::model::Songlist;
 use ncm_api::{
@@ -24,12 +24,14 @@ pub struct Player {
     songlists: Vec<Songlist>,
     //
     current_playlist_name: String,
+    current_playlist_id: Option<u64>,
     current_playlist: Vec<Song>, // TODO: 优化为指针
     //
     play_index_history_stack: Vec<usize>, // 历史记录，保存播放的歌曲在 playlist 中的 index，栈顶为当前播放
     //
     current_song_index: Option<usize>,
     current_song: Option<Song>,
+    pending_scrobble: Option<(u64, u64, u64)>, // song id, source id, played seconds
     //
     current_song_lyrics: Option<Lyrics>,
     current_lyric_line_index: Option<usize>,
@@ -57,10 +59,12 @@ impl Player {
             volume,
             songlists: Vec::new(),
             current_playlist_name: String::new(),
+            current_playlist_id: None,
             current_playlist: Vec::new(),
             play_index_history_stack: Vec::new(),
             current_song_index: None,
             current_song: None,
+            pending_scrobble: None,
             current_song_lyrics: None,
             current_lyric_line_index: None,
         }
@@ -120,6 +124,10 @@ impl Player {
         &self.current_song
     }
 
+    pub fn take_pending_scrobble(&mut self) -> Option<(u64, u64, u64)> {
+        self.pending_scrobble.take()
+    }
+
     pub fn current_song_index(&self) -> Option<usize> {
         self.current_song_index.clone()
     }
@@ -153,6 +161,7 @@ impl Player {
 
             //
             self.current_playlist_name = songlist.name.clone();
+            self.current_playlist_id = Some(songlist.id);
             self.current_playlist = songlist.songs.clone();
             self.play_index_history_stack = Vec::new();
             self.current_song_index = if self.current_playlist.is_empty() { None } else { Some(0) };
@@ -226,19 +235,24 @@ impl Player {
 
     /// 自动播放
     pub async fn auto_play<'c>(&mut self, ncm_client_guard: MutexGuard<'c, NcmClient>) -> Result<()> {
-        // 判断一首歌是否播放完
         if self.play_state == PlayState::Playing {
-            if let (Some(position), Some(duration)) = (self.position(), self.duration()) {
-                let position_msec = position.mseconds();
-                let duration_msec = duration.mseconds();
-
-                if duration_msec - position_msec <= 10 {
-                    self.play_state = PlayState::Ended;
+            let bus = self.play.message_bus();
+            let mut playback_ended = false;
+            while let Some(message) = bus.pop() {
+                if matches!(PlayMessage::parse(&message), Ok(PlayMessage::EndOfStream)) {
+                    playback_ended = true;
                 }
             }
-        }
 
-        if self.play_state == PlayState::Playing {
+            if playback_ended {
+                self.pending_scrobble = completed_scrobble(
+                    self.current_song.as_ref().map(|song| (song.id, song.duration)),
+                    self.current_playlist_id,
+                );
+                self.play_state = PlayState::Ended;
+                return Ok(());
+            }
+
             // 当前歌曲仍在播放，推进歌词
             self.auto_lyric_forward();
         } else if self.play_state == PlayState::Ended {
@@ -418,6 +432,8 @@ impl Player {
 
     async fn play_new_song_by_uri(&mut self, uri: &str) {
         self.play.stop();
+        let bus = self.play.message_bus();
+        while bus.pop().is_some() {}
         self.play.set_uri(Some(uri));
         self.play.play();
         self.play.set_volume(self.volume);
@@ -462,5 +478,23 @@ impl Player {
                 }
             }
         }
+    }
+}
+
+fn completed_scrobble(song: Option<(u64, u64)>, source_id: Option<u64>) -> Option<(u64, u64, u64)> {
+    let ((song_id, duration_ms), source_id) = song.zip(source_id)?;
+    let seconds = duration_ms / 1000;
+    (seconds > 0).then_some((song_id, source_id, seconds))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::completed_scrobble;
+
+    #[test]
+    fn builds_scrobble_only_with_song_and_source() {
+        assert_eq!(completed_scrobble(Some((1, 291_999)), Some(2)), Some((1, 2, 291)));
+        assert_eq!(completed_scrobble(Some((1, 291_999)), None), None);
+        assert_eq!(completed_scrobble(Some((1, 999)), Some(2)), None);
     }
 }

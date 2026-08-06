@@ -437,6 +437,31 @@ impl NcmClient {
         Ok(false)
     }
 
+    /// 上报完整播放记录
+    pub async fn scrobble(&self, song_id: u64, source_id: u64, time: u64) -> Result<()> {
+        let response = self
+            .http_client
+            .post(format!(
+                "{}/scrobble?id={}&sourceid={}&time={}&timestamp={}",
+                self.api_url,
+                song_id,
+                source_id,
+                time,
+                Utc::now().timestamp_millis()
+            ))
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if response["code"].as_u64() == Some(200) {
+            debug!("scrobbled song {} from source {}", song_id, source_id);
+            Ok(())
+        } else {
+            Err(anyhow!("failed to scrobble song, code {:?}", response["code"]))
+        }
+    }
+
     /// 装载歌曲 url
     pub async fn load_song_url(&self, song: &mut Song) -> Result<()> {
         song.song_url = None;
