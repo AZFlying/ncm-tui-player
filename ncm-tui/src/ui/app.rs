@@ -268,6 +268,29 @@ impl<'a> App<'a> {
                 Command::PrevSong => {
                     player.lock().await.play_prev_song_now(ncm_client.lock().await).await?;
                 },
+                Command::SetCurrentSongLiked(requested) => {
+                    let song = player.lock().await.active_song();
+                    if let Some(song) = song {
+                        let (like, result) = {
+                            let mut ncm_client_guard = ncm_client.lock().await;
+                            let like = requested.unwrap_or(!ncm_client_guard.is_song_liked(song.id));
+                            let result = ncm_client_guard.like_song(song.id, like).await;
+                            (like, result)
+                        };
+                        match result {
+                            Ok(()) => {
+                                player.lock().await.set_song_liked(song.id, like);
+                                command_queue.lock().await.push_back(Command::RefreshPlaylist);
+                                self.command_line.set_content(
+                                    format!("{}：{}", if like { "已喜欢" } else { "已取消喜欢" }, song.name).as_str(),
+                                );
+                            },
+                            Err(err) => self.command_line.set_content(err.to_string().as_str()),
+                        }
+                    } else {
+                        self.command_line.set_content("当前没有正在播放或暂停的歌曲");
+                    }
+                },
                 Command::SearchForward(search_keywords) => {
                     self.switch_to_search_mode(search_keywords);
                 },
@@ -383,7 +406,7 @@ impl<'a> App<'a> {
             },
             KeyCode::Esc => Command::Esc,
             KeyCode::Right => Command::NextPanel,
-            KeyCode::Char('l') => Command::NextPanel,
+            KeyCode::Char('l') => Command::SetCurrentSongLiked(None),
             KeyCode::Left => Command::PrevPanel,
             KeyCode::Char('h') => Command::PrevPanel,
             KeyCode::Char('1') => Command::GotoScreen(ScreenEnum::Main),

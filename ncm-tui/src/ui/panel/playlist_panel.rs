@@ -42,10 +42,16 @@ impl<'a> PlaylistPanel<'a> {
         let player_guard = player.lock().await;
         let current_playlist_name = player_guard.current_playlist_name();
 
-        if self.playlist_name != *current_playlist_name {
-            let current_playlist = player_guard.current_playlist();
-
-            self.set_model(current_playlist_name, current_playlist);
+        let selected = if self.playlist_name == *current_playlist_name {
+            self.playlist_table_state.selected()
+        } else {
+            None
+        };
+        let current_playlist = player_guard.current_playlist();
+        self.set_model(current_playlist_name, current_playlist);
+        if let Some(index) = selected.filter(|index| *index < current_playlist.len()) {
+            self.playlist_table_state.select(Some(index));
+            self.scrollbar_state = self.scrollbar_state.position(index);
         }
 
         Ok(())
@@ -60,7 +66,7 @@ impl<'a> PlaylistPanel<'a> {
             .iter()
             .map(|song| {
                 Row::from_iter(vec![
-                    Cell::new(song.name.clone()),
+                    Cell::new(if song.liked { format!("♥ {}", song.name) } else { song.name.clone() }),
                     Cell::new(song.singer.clone()),
                     Cell::new(song.album.clone()),
                     Cell::new(format!("{:02}:{:02}", song.duration.clone() / 60000, song.duration.clone() % 60000 / 1000)),

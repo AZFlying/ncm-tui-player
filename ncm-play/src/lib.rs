@@ -124,6 +124,28 @@ impl Player {
         &self.current_song
     }
 
+    pub fn active_song(&self) -> Option<Song> {
+        if matches!(self.play_state, PlayState::Playing | PlayState::Paused) {
+            self.current_song.clone()
+        } else {
+            None
+        }
+    }
+
+    pub fn set_song_liked(&mut self, song_id: u64, liked: bool) {
+        if let Some(song) = self.current_song.as_mut().filter(|song| song.id == song_id) {
+            song.liked = liked;
+        }
+        for song in self.current_playlist.iter_mut().filter(|song| song.id == song_id) {
+            song.liked = liked;
+        }
+        for songlist in &mut self.songlists {
+            for song in songlist.songs.iter_mut().filter(|song| song.id == song_id) {
+                song.liked = liked;
+            }
+        }
+    }
+
     pub fn take_pending_scrobble(&mut self) -> Option<(u64, u64, u64)> {
         self.pending_scrobble.take()
     }
