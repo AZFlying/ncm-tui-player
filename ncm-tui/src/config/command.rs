@@ -15,6 +15,7 @@ pub enum Command {
     StartPlay,
     NextSong,
     PrevSong,
+    SetCurrentSongLiked(Option<bool>),
     SearchForward(Vec<String>),
     SearchBackward(Vec<String>),
     RefreshPlaylist,
@@ -72,6 +73,8 @@ impl Command {
             },
             Some("next") => Ok(Self::NextSong),
             Some("prev" | "previous") => Ok(Self::PrevSong),
+            Some("like") => Ok(Self::SetCurrentSongLiked(Some(true))),
+            Some("unlike") => Ok(Self::SetCurrentSongLiked(Some(false))),
             Some("start") => Ok(Self::StartPlay),
             Some("where") => match tokens.next() {
                 Some("this") => Ok(Self::WhereIsThisSong),
@@ -97,5 +100,22 @@ impl Command {
             Some(other) => Err(anyhow!("Invalid command: {}", other)),
             None => Ok(Self::Nop),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Command;
+
+    #[test]
+    fn parses_like_commands() {
+        assert!(matches!(
+            Command::parse("like").unwrap(),
+            Command::SetCurrentSongLiked(Some(true))
+        ));
+        assert!(matches!(
+            Command::parse("unlike").unwrap(),
+            Command::SetCurrentSongLiked(Some(false))
+        ));
     }
 }

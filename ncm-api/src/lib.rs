@@ -11,6 +11,7 @@ use log::{debug, error};
 use regex::Regex;
 use reqwest::{Client, ClientBuilder};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -30,6 +31,7 @@ pub struct NcmClient {
     settings: Settings,
 
     login_account: Option<Account>,
+    liked_song_ids: HashSet<u64>,
 }
 
 impl NcmClient {
@@ -45,6 +47,7 @@ impl NcmClient {
             cookie: String::new(),
             settings: Settings::default(),
             login_account: None,
+            liked_song_ids: HashSet::new(),
         }
     }
 
@@ -318,7 +321,40 @@ impl NcmClient {
 }
 
 // 用户 api
-impl NcmClient {}
+impl NcmClient {
+    /// 加载用户喜欢的歌曲 ID
+    pub async fn load_liked_song_ids(&mut self) -> Result<()> {
+        let user_id = self.login_account.as_ref().ok_or_else(|| anyhow!("not logged in"))?.user_id;
+        let response = self
+            .http_client
+            .post(format!(
+                "{}/likelist?uid={}&timestamp={}",
+                self.api_url,
+                user_id,
+                Utc::now().timestamp_millis()
+            ))
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if response["code"].as_u64() != Some(200) {
+            return Err(anyhow!("failed to load liked songs, code {:?}", response["code"]));
+        }
+
+        self.liked_song_ids = response["ids"]
+            .as_array()
+            .ok_or_else(|| anyhow!("liked song list is missing ids"))?
+            .iter()
+            .filter_map(Value::as_u64)
+            .collect();
+        Ok(())
+    }
+
+    pub fn is_song_liked(&self, song_id: u64) -> bool {
+        self.liked_song_ids.contains(&song_id)
+    }
+}
 
 // 歌单 api
 impl NcmClient {
@@ -406,6 +442,7 @@ impl NcmClient {
                     duration: track["dt"].as_u64().unwrap(),
                     song_url: None,
                     quality_level: String::new(),
+                    liked: self.is_song_liked(track["id"].as_u64().unwrap()),
                 };
                 songlist.songs.push(song);
             }
@@ -419,6 +456,41 @@ impl NcmClient {
 
 // 歌曲 api
 impl NcmClient {
+    /// 喜欢或取消喜欢歌曲
+    pub async fn like_song(&mut self, song_id: u64, like: bool) -> Result<()> {
+        let response = self
+            .http_client
+            .post(format!(
+                "{}/like?id={}&like={}&timestamp={}",
+                self.api_url,
+                song_id,
+                like,
+                Utc::now().timestamp_millis()
+            ))
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if response["code"].as_u64() == Some(200) {
+            if like {
+                self.liked_song_ids.insert(song_id);
+            } else {
+                self.liked_song_ids.remove(&song_id);
+            }
+            debug!("set liked={} for song {}", like, song_id);
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "failed to set liked={} for song {}, code {:?}: {}",
+                like,
+                song_id,
+                response["code"],
+                response["message"].as_str().unwrap_or("unknown error")
+            ))
+        }
+    }
+
     /// 检查歌曲是否可获取
     pub async fn check_song_availability(&self, song_id: u64) -> Result<bool> {
         let check_response = self
@@ -435,6 +507,31 @@ impl NcmClient {
         }
 
         Ok(false)
+    }
+
+    /// 上报完整播放记录
+    pub async fn scrobble(&self, song_id: u64, source_id: u64, time: u64) -> Result<()> {
+        let response = self
+            .http_client
+            .post(format!(
+                "{}/scrobble?id={}&sourceid={}&time={}&timestamp={}",
+                self.api_url,
+                song_id,
+                source_id,
+                time,
+                Utc::now().timestamp_millis()
+            ))
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if response["code"].as_u64() == Some(200) {
+            debug!("scrobble request accepted for song {} from source {}", song_id, source_id);
+            Ok(())
+        } else {
+            Err(anyhow!("failed to scrobble song, code {:?}", response["code"]))
+        }
     }
 
     /// 装载歌曲 url

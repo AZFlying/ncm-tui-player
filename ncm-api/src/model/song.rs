@@ -21,4 +21,6 @@ pub struct Song {
     pub song_url: Option<String>,
     /// 音质
     pub quality_level: String,
+    /// 是否已喜欢
+    pub liked: bool,
 }

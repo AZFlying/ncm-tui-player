@@ -64,6 +64,12 @@ async fn main() -> Result<()> {
         // 检查播放情况
         player.lock().await.auto_play(ncm_client.lock().await).await?;
 
+        if let Some((song_id, source_id, time)) = player.lock().await.take_pending_scrobble() {
+            if let Err(err) = ncm_client.lock().await.scrobble(song_id, source_id, time).await {
+                log::error!("failed to scrobble song {}: {}", song_id, err);
+            }
+        }
+
         // 根据 Controller 流程，先执行 update_model()，再执行 handle_event()
         app.lock().await.update_model().await?;
 
