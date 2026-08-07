@@ -137,7 +137,7 @@ impl<'a> Controller for LyricPanel<'a> {
                     .title(Line::from(format!("\u{1F3A4}{}", song.singer)).right_aligned())
                     .title_bottom(Line::from(format!("\u{1F4DA}{}", song.album)).centered())
                     .borders(Borders::ALL);
-                if self.focused_status == PanelFocusedStatus::Outside {
+                if self.focused_status != PanelFocusedStatus::Nop {
                     block = block.border_style(PANEL_SELECTED_BORDER_STYLE);
                 }
 
@@ -145,7 +145,7 @@ impl<'a> Controller for LyricPanel<'a> {
             }),
             None => song_lyric_list.block({
                 let mut block = Block::default().title("\u{1F3B6}pick a song to play".to_string()).borders(Borders::ALL);
-                if self.focused_status == PanelFocusedStatus::Outside {
+                if self.focused_status != PanelFocusedStatus::Nop {
                     block = block.border_style(PANEL_SELECTED_BORDER_STYLE);
                 }
 

@@ -138,7 +138,7 @@ impl<'a> Controller for SonglistsPanel<'a> {
                     .title(Line::from(format!("{}收藏的歌单", self.username)))
                     .title_bottom(Line::from("按下`Alt+Enter`开始播放选中歌单").centered())
                     .borders(Borders::ALL);
-                if self.focused_status == PanelFocusedStatus::Outside {
+                if self.focused_status != PanelFocusedStatus::Nop {
                     block = block.border_style(PANEL_SELECTED_BORDER_STYLE);
                 }
 
