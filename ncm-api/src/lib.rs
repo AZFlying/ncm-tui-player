@@ -455,7 +455,7 @@ impl NcmClient {
 
         let response: Value = serde_json::from_slice(&response.bytes().await?)?;
         if response["code"].as_u64() == Some(200) {
-            debug!("scrobbled song {} from source {}", song_id, source_id);
+            debug!("scrobble request accepted for song {} from source {}", song_id, source_id);
             Ok(())
         } else {
             Err(anyhow!("failed to scrobble song, code {:?}", response["code"]))
