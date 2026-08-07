@@ -83,8 +83,14 @@ impl<'a> Controller for MainScreen<'a> {
             (NextPanel, PlaylistOutside) => {
                 self.focus_panel_outside(Panels::Lyric);
             },
+            (NextPanel, PlaylistInside) => {
+                self.focus_panel_inside(Panels::Lyric);
+            },
             (PrevPanel, LyricOutside) => {
                 self.focus_panel_outside(Panels::Playlist);
+            },
+            (PrevPanel, LyricInside) => {
+                self.focus_panel_inside(Panels::Playlist);
             },
             //
             (EnterOrPlay, PlaylistOutside) => {
@@ -181,5 +187,24 @@ impl<'a> MainScreen<'a> {
                 self.lyric_panel.focused_status = PanelFocusedStatus::Inside;
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn switches_panels_while_inside() {
+        let mut screen = MainScreen::new(&Style::default());
+        screen.focus_panel_inside(Panels::Playlist);
+
+        screen.handle_event(Command::NextPanel).await.unwrap();
+        assert!(screen.current_focus_panel == FocusPanel::LyricInside);
+        assert!(screen.lyric_panel.focused_status == PanelFocusedStatus::Inside);
+
+        screen.handle_event(Command::PrevPanel).await.unwrap();
+        assert!(screen.current_focus_panel == FocusPanel::PlaylistInside);
+        assert!(screen.playlist_panel.focused_status == PanelFocusedStatus::Inside);
     }
 }

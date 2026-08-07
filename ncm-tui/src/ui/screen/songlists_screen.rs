@@ -90,8 +90,14 @@ impl<'a> Controller for SonglistsScreen<'a> {
             (NextPanel, SonglistCandidatesOutside) => {
                 self.focus_panel_outside(Panels::SonglistContent);
             },
+            (NextPanel, SonglistCandidatesInside) => {
+                self.focus_panel_inside(Panels::SonglistContent);
+            },
             (PrevPanel, SonglistContentOutside) => {
                 self.focus_panel_outside(Panels::SonglistCandidates);
+            },
+            (PrevPanel, SonglistContentInside) => {
+                self.focus_panel_inside(Panels::SonglistCandidates);
             },
 
             //
@@ -226,5 +232,24 @@ impl<'a> SonglistsScreen<'a> {
                 self.songlist_content_panel.focused_status = PanelFocusedStatus::Inside;
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn switches_panels_while_inside() {
+        let mut screen = SonglistsScreen::new(&Style::default());
+        screen.focus_panel_inside(Panels::SonglistCandidates);
+
+        screen.handle_event(Command::NextPanel).await.unwrap();
+        assert!(screen.current_focus_panel == FocusPanel::SonglistContentInside);
+        assert!(screen.songlist_content_panel.focused_status == PanelFocusedStatus::Inside);
+
+        screen.handle_event(Command::PrevPanel).await.unwrap();
+        assert!(screen.current_focus_panel == FocusPanel::SonglistCandidatesInside);
+        assert!(screen.songlist_candidates_panel.focused_status == PanelFocusedStatus::Inside);
     }
 }

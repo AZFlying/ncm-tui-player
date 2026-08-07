@@ -167,7 +167,7 @@ impl<'a> Controller for PlaylistPanel<'a> {
             )
             .block({
                 let mut block = Block::default().title(format!("Playlist: {}\u{1F4DC}", self.playlist_name.clone())).borders(Borders::ALL);
-                if self.focused_status == PanelFocusedStatus::Outside {
+                if self.focused_status != PanelFocusedStatus::Nop {
                     block = block.border_style(PANEL_SELECTED_BORDER_STYLE);
                 }
 
