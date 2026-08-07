@@ -184,6 +184,11 @@ impl<'a> Controller for PlaylistPanel<'a> {
 
     fn draw(&self, frame: &mut Frame, chunk: Rect) {
         let mut playlist_table_state = self.playlist_table_state.clone();
+        if let Some(selected) = playlist_table_state.selected() {
+            let visible_rows = chunk.height.saturating_sub(3) as usize; // 上下边框和表头
+            *playlist_table_state.offset_mut() =
+                centered_offset(selected, self.playlist_table_rows.len(), visible_rows);
+        }
         frame.render_stateful_widget(&self.playlist_table, chunk, &mut playlist_table_state);
 
         // 渲染 scrollbar
@@ -196,5 +201,26 @@ impl<'a> Controller for PlaylistPanel<'a> {
         let scrollbar_area = chunk.inner(Margin { vertical: 1, horizontal: 0 });
         let mut scrollbar_state = self.scrollbar_state.clone();
         frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+    }
+}
+
+fn centered_offset(selected: usize, row_count: usize, visible_row_count: usize) -> usize {
+    selected
+        .saturating_sub(visible_row_count / 2)
+        .min(row_count.saturating_sub(visible_row_count))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::centered_offset;
+
+    #[test]
+    fn centers_selection_except_near_boundaries() {
+        assert_eq!(centered_offset(2, 20, 7), 0);
+        assert_eq!(centered_offset(10, 20, 7), 7);
+        assert_eq!(centered_offset(18, 20, 7), 13);
+        assert_eq!(centered_offset(3, 5, 7), 0);
+        assert_eq!(centered_offset(10, 20, 9), 6);
+        assert_eq!(centered_offset(5, 20, 8), 1);
     }
 }
