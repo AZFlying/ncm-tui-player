@@ -50,14 +50,18 @@
 ### 播放列表
 - [x] 播放用户歌单（创建+收藏）
 - [x] 在播放列表中跳转到当前播放的歌曲
+- [x] 播放结束自动切歌时，播放列表光标跟随当前歌曲
 - [x] 在播放列表中搜索歌曲名
   - [ ] 支持正则表达式
+- [x] 创建 / 删除歌单（歌单界面按 `n` / `d`，或使用 `playlist create` / `playlist delete` 命令）
+- [x] 收藏歌曲到指定歌单 / 从歌单移除（`collect` / `uncollect` 命令，候选列表实时过滤补全）
 
 ### 歌曲
 - [ ] 全局搜索歌曲
 - [x] 下载歌曲 / 歌单，并优先播放本应用下载的本地文件
 - [ ] 歌曲操作
   - [x] 喜欢 / 取消喜欢（按 `l` 切换，或使用 `like` / `unlike` 命令）
+  - [x] 收藏到自建歌单 / 取消收藏（`collect` / `uncollect` 命令）；歌单界面右侧可按 `d` 移除高亮歌曲
   - [ ] 查看所属专辑
   - [ ] 查看歌手主页
 
@@ -152,18 +156,32 @@ Gstreamer 的安装与 `local api` 模式下相同。
 下载歌曲时会同时下载歌词文件（默认命名 `{曲名}-Lyric.lrc`），歌词下载失败不影响歌曲本身。
 已下载的歌曲在播放列表曲名前显示 `↓` 标识（与喜欢的 `♥` 叠加时显示为 `♥↓`）。
 
+## 歌单管理
+
+命令行模式支持：
+
+- `collect <歌单名>`：收藏当前播放歌曲到指定自建歌单。
+- `uncollect <歌单名>`：从指定自建歌单移除当前播放歌曲。
+- `playlist create <名称>`：创建歌单（默认私有）。
+- `playlist delete <名称>`：删除自建歌单（需按 `y` 确认）。
+
+输入 `collect` / `uncollect` / `playlist delete` 后自动展开歌单候选列表：输入任意字符实时过滤（子串匹配、不区分大小写），`↑`/`↓`（或 `Tab`/`Shift+Tab`）选择，`Enter` 填入，`Esc` 关闭。列表仅列出自建歌单，歌单名可含空格。
+
+歌单界面快捷键：左侧面板按 `n` 新建歌单、按 `d` 删除高亮歌单（收藏的歌单不可删除）；右侧歌曲列表按 `d` 从当前浏览的歌单移除高亮歌曲。主界面按 `n` 会预填 `collect ` 命令并展开候选列表，可快速收藏当前播放歌曲。以上操作均只对自建歌单生效，且「我喜欢的音乐」歌单不参与收藏 / 移除。
+
 下载配置位于应用数据目录的 `settings.json`（Linux 默认为 `~/.local/share/ncm-tui-player/settings.json`）。首次启动后可修改：
 
 ```json
 {
   "download_path": "/absolute/path/to/music",
   "download_quality": "jymaster",
+  "play_quality": "hires",
   "download_file_name_pattern": "{name}-{singer}-{album}-{quality}-{id}",
   "download_lyric_name_pattern": "{name}-Lyric"
 }
 ```
 
-`download_path` 建议使用绝对路径，修改后重启生效。`download_quality` 支持：`standard`、`higher`、`exhigh`、`lossless`、`hires`、`jyeffect`、`sky`、`dolby`、`jymaster`。该字段只控制下载音质，不改变在线播放音质。
+`download_path` 建议使用绝对路径，修改后重启生效。`download_quality` 支持：`standard`、`higher`、`exhigh`、`lossless`、`hires`、`jyeffect`、`sky`、`dolby`、`jymaster`，该字段只控制下载音质。在线播放音质由 `play_quality` 控制，支持同一组取值，默认 `hires`（部分音质需要黑胶 VIP，否则会按账号权限回落）。修改后重启生效。
 
 `download_file_name_pattern` 控制下载文件命名，可用占位符：`{name}`（曲名）、`{singer}`（作者）、`{album}`（专辑）、`{quality}`（请求音质）、`{id}`（歌曲 ID）。为保证本地优先播放与重复下载检测正常工作，命名中需保留 `{id}`（置于开头或结尾）与 `{quality}`（两侧以 `-` 分隔）。
 

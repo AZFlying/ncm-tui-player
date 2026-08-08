@@ -426,6 +426,8 @@ impl NcmClient {
                     } else {
                         String::new()
                     },
+                    subscribed: playlist["subscribed"].as_bool().unwrap_or(false),
+                    special_type: playlist["specialType"].as_u64().unwrap_or(0),
                     songs: Vec::new(),
                 });
             }
@@ -453,6 +455,73 @@ impl NcmClient {
         async move {
             songlist.songs = request_songlist_songs(&http_client, &api_url, &cookie, &liked_song_ids, songlist.id).await?;
             Ok(songlist)
+        }
+    }
+
+    /// 向歌单添加/移除歌曲（仅对自建歌单有效）
+    pub async fn update_songlist_tracks(&self, add: bool, songlist_id: u64, song_id: u64) -> Result<()> {
+        let response = self
+            .http_client
+            .post(format!(
+                "{}/playlist/tracks?op={}&pid={}&tracks={}",
+                self.api_url,
+                if add { "add" } else { "del" },
+                songlist_id,
+                song_id
+            ))
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        // 该端点的响应被包裹为 {"status": 200, "body": {"code": 200, ...}}，兼容顶层 code
+        let code = response["body"]["code"].as_u64().or_else(|| response["code"].as_u64());
+        if code == Some(200) {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "failed to {} song {} in songlist {}, code {:?}: {}",
+                if add { "add" } else { "del" },
+                song_id,
+                songlist_id,
+                code,
+                response["body"]["message"].as_str().or_else(|| response["message"].as_str()).unwrap_or("unknown error")
+            ))
+        }
+    }
+
+    /// 创建歌单（默认私有），返回新歌单 id（响应结构不确定时返回 None）
+    pub async fn create_songlist(&self, name: &str) -> Result<Option<u64>> {
+        let response = self
+            .http_client
+            .post(format!("{}/playlist/create", self.api_url))
+            .query(&[("name", name), ("privacy", "10")])
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if response["code"].as_u64() == Some(200) {
+            Ok(response["playlist"]["id"].as_u64().or_else(|| response["id"].as_u64()))
+        } else {
+            Err(anyhow!("failed to create songlist {}, code {:?}", name, response["code"]))
+        }
+    }
+
+    /// 删除自建歌单
+    pub async fn delete_songlist(&self, songlist_id: u64) -> Result<()> {
+        let response = self
+            .http_client
+            .post(format!("{}/playlist/delete?id={}", self.api_url, songlist_id))
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if response["code"].as_u64() == Some(200) {
+            Ok(())
+        } else {
+            Err(anyhow!("failed to delete songlist {}, code {:?}", songlist_id, response["code"]))
         }
     }
 }

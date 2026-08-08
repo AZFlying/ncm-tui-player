@@ -31,8 +31,10 @@ impl<'a> HelpScreen<'a> {
             *Switch To Command Line Mode:           {}\n\
             Search Forward:                         {}\n\
             Search Backward:                        {}\n\
+            New Songlist (Songlists) / Collect (Main): {}\n\
+            Delete Songlist / Remove Song:          {}\n\
             Quit:                                   {}",
-            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "q",
+            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "q",
         ));
         let normal_mode_help_page = Paragraph::new(normal_mode_help_text)
             .block(Block::default().title("普通模式").borders(Borders::ALL))
@@ -63,6 +65,10 @@ impl<'a> HelpScreen<'a> {
             Jump To Current Song In Playlist:       {}\n\
             Jump To Top:                            {}\n\
             Jump To Bottom:                         {}\n\
+            Collect Current Song To Songlist:       {} (候选列表自动展开)\n\
+            Uncollect Current Song From Songlist:   {} (候选列表自动展开)\n\
+            Create Songlist:                        {}\n\
+            Delete Songlist:                        {} (候选列表自动展开)\n\
             Search Forward:                         {}\n\
             Search Backward:                        {}",
             "q / quit / exit",
@@ -88,6 +94,10 @@ impl<'a> HelpScreen<'a> {
             "where this",
             "top",
             "bottom",
+            "collect <歌单名>",
+            "uncollect <歌单名>",
+            "playlist create <名称>",
+            "playlist delete <名称>",
             "/ xxx",
             "? xxx",
         ));

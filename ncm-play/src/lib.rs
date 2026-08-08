@@ -169,6 +169,10 @@ impl Player {
     pub fn songlists(&self) -> &Vec<Songlist> {
         &self.songlists
     }
+
+    pub fn songlists_mut(&mut self) -> &mut Vec<Songlist> {
+        &mut self.songlists
+    }
 }
 
 /// playlist
