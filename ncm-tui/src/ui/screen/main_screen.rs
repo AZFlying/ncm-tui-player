@@ -116,6 +116,9 @@ impl<'a> Controller for MainScreen<'a> {
                 self.playlist_panel.handle_event(cmd).await?;
                 self.focus_panel_inside(Panels::Playlist);
             },
+            (SyncPlaylistCursor, _) => {
+                self.playlist_panel.handle_event(cmd).await?;
+            },
             //
             (GoToTop | GoToBottom, PlaylistOutside | PlaylistInside) => {
                 self.playlist_panel.handle_event(cmd).await?;

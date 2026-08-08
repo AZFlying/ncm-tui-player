@@ -254,6 +254,16 @@ impl<'a> App<'a> {
                 Command::SetVolume(vol) => {
                     player.lock().await.set_volume(vol);
                 },
+                Command::VolumeUp => {
+                    let mut player_guard = player.lock().await;
+                    let vol = player_guard.volume() + 0.05;
+                    player_guard.set_volume(vol);
+                },
+                Command::VolumeDown => {
+                    let mut player_guard = player.lock().await;
+                    let vol = player_guard.volume() - 0.05;
+                    player_guard.set_volume(vol);
+                },
                 Command::SwitchPlayMode(play_mode) => {
                     player.lock().await.set_play_mode(play_mode);
                 },
@@ -350,6 +360,7 @@ impl<'a> App<'a> {
                     | Command::EnterOrPlay
                     | Command::Play
                     | Command::WhereIsThisSong
+                    | Command::SyncPlaylistCursor
                     | Command::GoToTop
                     | Command::GoToBottom
                     | Command::SearchForward(_)
@@ -465,6 +476,8 @@ impl<'a> App<'a> {
                 self.command_line.set_content("? ");
                 Command::Nop
             },
+            KeyCode::Char('-') => Command::VolumeDown,
+            KeyCode::Char('=') => Command::VolumeUp,
             //
             KeyCode::Tab => Command::NextPanel,
             KeyCode::BackTab => Command::PrevPanel,

@@ -12,6 +12,7 @@ pub struct Settings {
     pub remote_api_url: String,
     pub download_path: PathBuf,
     pub download_quality: String,
+    pub play_quality: String,
     pub download_file_name_pattern: String,
     pub download_lyric_name_pattern: String,
 }
@@ -23,6 +24,7 @@ impl Default for Settings {
             remote_api_url: String::from("https://ncm-api-wine.vercel.app/"),
             download_path: PathBuf::new(),
             download_quality: String::from("jymaster"),
+            play_quality: String::from("hires"),
             download_file_name_pattern: String::from("{name}-{singer}-{album}-{quality}-{id}"),
             download_lyric_name_pattern: String::from("{name}-Lyric"),
         }
@@ -42,6 +44,7 @@ mod tests {
 
         assert!(settings.download_path.as_os_str().is_empty());
         assert_eq!(settings.download_quality, "jymaster");
+        assert_eq!(settings.play_quality, "hires");
         assert_eq!(settings.download_file_name_pattern, "{name}-{singer}-{album}-{quality}-{id}");
         assert_eq!(settings.download_lyric_name_pattern, "{name}-Lyric");
     }

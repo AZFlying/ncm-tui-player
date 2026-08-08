@@ -49,7 +49,7 @@ impl Player {
         config.set_seek_accurate(true);
         play.set_config(config).unwrap();
 
-        let volume = 0.2;
+        let volume = 1.0;
         play.set_volume(volume);
 
         Self {

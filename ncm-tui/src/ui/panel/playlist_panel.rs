@@ -131,7 +131,7 @@ impl<'a> Controller for PlaylistPanel<'a> {
                     .play_particularly_now(self.playlist_table_state.selected().unwrap_or(0), ncm_client.lock().await)
                     .await?;
             },
-            Command::WhereIsThisSong => {
+            Command::WhereIsThisSong | Command::SyncPlaylistCursor => {
                 if let Some(index) = player.lock().await.current_song_index() {
                     self.playlist_table_state.select(Some(index));
                     self.scrollbar_state = self.scrollbar_state.position(index);

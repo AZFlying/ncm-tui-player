@@ -11,6 +11,8 @@ pub enum Command {
     Logout,
     PlayOrPause,
     SetVolume(f64),
+    VolumeUp,
+    VolumeDown,
     SwitchPlayMode(PlayMode),
     StartPlay,
     NextSong,
@@ -33,6 +35,8 @@ pub enum Command {
     /// Alt + Enter，优先执行播放功能，所选项为菜单则对其执行 StartPlay
     Play,
     WhereIsThisSong,
+    /// 播放自动切歌后同步 playlist 光标（不改变面板焦点）
+    SyncPlaylistCursor,
     GoToTop,
     GoToBottom,
 
