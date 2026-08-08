@@ -1,3 +1,4 @@
+use crate::config::style::*;
 use crate::config::LOGO_LINES;
 use crate::ui::widget::{BottomBar, CommandLine};
 use crate::{
@@ -15,16 +16,32 @@ use crossterm::{
     terminal::{disable_raw_mode, LeaveAlternateScreen},
 };
 use log::debug;
+use ncm_api::model::Songlist;
 use ratatui::prelude::*;
 use ratatui::style::palette::tailwind;
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use std::io::Stdout;
+use unicode_width::UnicodeWidthStr;
+
+/// 命令补全候选列表状态
+struct CompletionState {
+    /// 命令前缀，如 "collect "
+    prefix: String,
+    /// 过滤与排序后的候选歌单名
+    candidates: Vec<String>,
+    /// 高亮索引
+    selected: usize,
+}
 
 pub struct App<'a> {
     // model
     current_screen: ScreenEnum,
     current_mode: AppMode,
     need_re_update_view: bool,
+    /// 待确认的删除歌单操作（id, 名称），按 y 执行、其余键取消
+    pending_delete_songlist: Option<(u64, String)>,
+    /// 命令补全候选列表，输入不匹配补全前缀或无候选时为 None
+    completion: Option<CompletionState>,
 
     // view
     main_screen: MainScreen<'a>,
@@ -48,6 +65,8 @@ impl<'a> App<'a> {
             current_screen: ScreenEnum::Launch,
             current_mode: AppMode::Normal,
             need_re_update_view: true,
+            pending_delete_songlist: None,
+            completion: None,
             main_screen: MainScreen::new(&normal_style),
             songlists_screen: SonglistsScreen::new(&normal_style),
             login_screen: LoginScreen::new(&normal_style),
@@ -168,6 +187,17 @@ impl<'a> App<'a> {
     pub async fn parse_key_to_event(&mut self) -> Result<()> {
         if let Event::Key(key_event) = event::read()? {
             if key_event.kind == KeyEventKind::Press || key_event.kind == KeyEventKind::Repeat {
+                // 有待确认的删除操作时：y 执行，其余任意键取消
+                if self.pending_delete_songlist.is_some() {
+                    if matches!(key_event.code, KeyCode::Char('y') | KeyCode::Char('Y')) {
+                        self.delete_confirmed_songlist().await;
+                    } else {
+                        self.pending_delete_songlist = None;
+                        self.command_line.set_content("已取消删除");
+                    }
+                    return Ok(());
+                }
+
                 match (&self.current_mode, key_event.code) {
                     // Normal 模式
                     (AppMode::Normal, _) => {
@@ -198,20 +228,45 @@ impl<'a> App<'a> {
 
                     // CommandLine 模式
                     (AppMode::CommandLine, KeyCode::Enter) => {
-                        self.parse_command().await;
+                        if let Some(state) = self.completion.take() {
+                            // 填入高亮候选并关闭列表，再次 Enter 才执行
+                            let completed = format!("{}{}", state.prefix, state.candidates[state.selected]);
+                            self.command_line.set_content(&completed);
+                        } else {
+                            self.parse_command().await;
+                        }
                     },
                     (AppMode::CommandLine, KeyCode::Esc) => {
-                        self.back_to_normal_mode();
+                        // 列表展开时仅关闭列表
+                        if self.completion.take().is_none() {
+                            self.back_to_normal_mode();
+                        }
+                    },
+                    (AppMode::CommandLine, KeyCode::Tab | KeyCode::Down) => {
+                        if let Some(state) = &mut self.completion {
+                            state.selected = (state.selected + 1) % state.candidates.len();
+                        } else if key_event.code == KeyCode::Down {
+                            self.command_line.input(key_event);
+                        }
+                    },
+                    (AppMode::CommandLine, KeyCode::BackTab | KeyCode::Up) => {
+                        if let Some(state) = &mut self.completion {
+                            state.selected = (state.selected + state.candidates.len() - 1) % state.candidates.len();
+                        } else if key_event.code == KeyCode::Up {
+                            self.command_line.input(key_event);
+                        }
                     },
                     (AppMode::CommandLine, KeyCode::Backspace) => {
                         if self.command_line.is_content_empty() {
                             self.back_to_normal_mode();
                         } else {
                             self.command_line.input(key_event);
+                            self.refresh_completion().await;
                         }
                     },
                     (AppMode::CommandLine, _) => {
                         self.command_line.input(key_event);
+                        self.refresh_completion().await;
                     },
                 }
             }
@@ -340,6 +395,81 @@ impl<'a> App<'a> {
                 Command::DownloadFinished(message) => {
                     self.command_line.set_content(&message);
                 },
+                Command::ShowMessage(message) => {
+                    self.command_line.set_content(&message);
+                },
+                Command::CollectToSonglist(name) => {
+                    self.update_song_collection(name, true).await;
+                },
+                Command::UncollectFromSonglist(name) => {
+                    self.update_song_collection(name, false).await;
+                },
+                Command::CreateSonglist(name) => {
+                    let result = {
+                        let ncm_client_guard = ncm_client.lock().await;
+                        ncm_client_guard.create_songlist(&name).await
+                    };
+                    match result {
+                        Ok(new_id) => {
+                            // 本地插入新歌单（紧随「我喜欢的音乐」之后，与服务端排序一致）
+                            let creator = ncm_client.lock().await.login_account().map(|a| a.nickname).unwrap_or_default();
+                            if let Some(id) = new_id {
+                                let mut player_guard = player.lock().await;
+                                let insert_pos = match player_guard.songlists().first() {
+                                    Some(first) if first.special_type == 5 => 1,
+                                    _ => 0,
+                                };
+                                player_guard.songlists_mut().insert(
+                                    insert_pos,
+                                    Songlist {
+                                        name: name.clone(),
+                                        id,
+                                        songs_count: 0,
+                                        creator,
+                                        subscribed: false,
+                                        special_type: 0,
+                                        songs: Vec::new(),
+                                    },
+                                );
+                            } else if let Ok(songlists) = ncm_client.lock().await.get_user_all_songlists().await {
+                                // 未解析到新歌单 id，退化为全量刷新
+                                player.lock().await.set_songlists(songlists);
+                            }
+                            command_queue.lock().await.push_back(Command::RefreshPlaylist);
+                            self.command_line.set_content(format!("已创建歌单《{}》", name).as_str());
+                        },
+                        Err(err) => self.command_line.set_content(err.to_string().as_str()),
+                    }
+                },
+                Command::DeleteSonglistByName(name) => {
+                    let target = {
+                        let player_guard = player.lock().await;
+                        player_guard.songlists().iter().find(|sl| sl.name == name).cloned()
+                    };
+                    match target {
+                        None => self.command_line.set_content(format!("未找到歌单《{}》", name).as_str()),
+                        Some(sl) if sl.subscribed => self.command_line.set_content("不能删除收藏的歌单"),
+                        Some(sl) if sl.special_type == 5 => self.command_line.set_content("不能删除「我喜欢的音乐」"),
+                        Some(sl) => {
+                            self.pending_delete_songlist = Some((sl.id, sl.name.clone()));
+                            self.command_line.set_content(format!("删除歌单《{}》？[y/N]", sl.name).as_str());
+                        },
+                    }
+                },
+                Command::NewOrCollect => {
+                    match self.current_screen {
+                        ScreenEnum::Songlists => {
+                            self.switch_to_command_line_mode();
+                            self.command_line.set_content("playlist create ");
+                        },
+                        ScreenEnum::Main => {
+                            self.switch_to_command_line_mode();
+                            self.command_line.set_content("collect ");
+                            self.refresh_completion().await;
+                        },
+                        _ => {},
+                    }
+                },
                 Command::SearchForward(search_keywords) => {
                     self.switch_to_search_mode(search_keywords);
                 },
@@ -363,6 +493,7 @@ impl<'a> App<'a> {
                     | Command::SyncPlaylistCursor
                     | Command::GoToTop
                     | Command::GoToBottom
+                    | Command::Delete
                     | Command::SearchForward(_)
                     | Command::SearchBackward(_)
                     | Command::RefreshPlaylist
@@ -432,6 +563,24 @@ impl<'a> App<'a> {
 
             // 渲染 command_line
             self.command_line.draw(frame, chunks[2]);
+
+            // 渲染补全候选列表（浮于命令行上方）
+            if let Some(state) = &self.completion {
+                let area = frame.area();
+                let height = state.candidates.len().min(10) as u16 + 2;
+                let max_name_width = state.candidates.iter().map(|n| UnicodeWidthStr::width(n.as_str())).max().unwrap_or(0) as u16;
+                let width = (max_name_width + 4).clamp(20, area.width.saturating_sub(2));
+                let popup_area = Rect::new(0, area.height.saturating_sub(1 + height), width, height);
+
+                let items: Vec<ListItem> = state.candidates.iter().map(|n| ListItem::new(n.clone())).collect();
+                let list = List::new(items)
+                    .block(Block::default().title("选择歌单").borders(Borders::ALL))
+                    .highlight_style(ITEM_SELECTED_STYLE);
+                let mut list_state = ListState::default().with_selected(Some(state.selected));
+
+                frame.render_widget(Clear, popup_area);
+                frame.render_stateful_widget(list, popup_area, &mut list_state);
+            }
         })?;
 
         Ok(())
@@ -478,6 +627,8 @@ impl<'a> App<'a> {
             },
             KeyCode::Char('-') => Command::VolumeDown,
             KeyCode::Char('=') => Command::VolumeUp,
+            KeyCode::Char('n') => Command::NewOrCollect,
+            KeyCode::Char('d') => Command::Delete,
             //
             KeyCode::Tab => Command::NextPanel,
             KeyCode::BackTab => Command::PrevPanel,
@@ -505,11 +656,13 @@ impl<'a> App<'a> {
 
     fn back_to_normal_mode(&mut self) {
         self.current_mode = AppMode::Normal;
+        self.completion = None;
         self.command_line.set_to_normal_mode();
     }
 
     fn switch_to_command_line_mode(&mut self) {
         self.current_mode = AppMode::CommandLine;
+        self.completion = None;
         self.command_line.set_to_command_line_mode();
     }
 
@@ -522,6 +675,97 @@ impl<'a> App<'a> {
     fn switch_to_search_input_mode(&mut self) {
         self.current_mode = AppMode::CommandLine;
         self.command_line.set_to_search_mode();
+    }
+
+    /// 收藏/取消收藏当前播放歌曲到指定歌单
+    async fn update_song_collection(&mut self, name: String, add: bool) {
+        let (song, target) = {
+            let player_guard = player.lock().await;
+            let song = player_guard.active_song();
+            let target = player_guard
+                .songlists()
+                .iter()
+                .find(|sl| sl.name == name && !sl.subscribed && sl.special_type != 5)
+                .cloned();
+            (song, target)
+        };
+
+        let Some(song) = song else {
+            self.command_line.set_content("当前没有正在播放或暂停的歌曲");
+            return;
+        };
+        let Some(songlist) = target else {
+            self.command_line.set_content(format!("未找到可操作的歌单《{}》（仅支持自建歌单）", name).as_str());
+            return;
+        };
+
+        let result = {
+            let ncm_client_guard = ncm_client.lock().await;
+            ncm_client_guard.update_songlist_tracks(add, songlist.id, song.id).await
+        };
+        match result {
+            Ok(()) => {
+                // 本地同步歌单歌曲计数，避免服务端缓存导致的刷新滞后
+                let mut player_guard = player.lock().await;
+                if let Some(sl) = player_guard.songlists_mut().iter_mut().find(|sl| sl.id == songlist.id) {
+                    if add {
+                        sl.songs_count += 1;
+                    } else {
+                        sl.songs_count = sl.songs_count.saturating_sub(1);
+                    }
+                }
+                drop(player_guard);
+                command_queue.lock().await.push_back(Command::RefreshPlaylist);
+                self.command_line.set_content(
+                    format!("{}：《{}》→《{}》", if add { "已收藏" } else { "已取消收藏" }, song.name, songlist.name).as_str(),
+                );
+            },
+            Err(err) => self.command_line.set_content(err.to_string().as_str()),
+        }
+    }
+
+    /// 执行已确认的删除歌单操作
+    async fn delete_confirmed_songlist(&mut self) {
+        if let Some((id, name)) = self.pending_delete_songlist.take() {
+            let result = {
+                let ncm_client_guard = ncm_client.lock().await;
+                ncm_client_guard.delete_songlist(id).await
+            };
+            match result {
+                Ok(()) => {
+                    player.lock().await.songlists_mut().retain(|sl| sl.id != id);
+                    command_queue.lock().await.push_back(Command::RefreshPlaylist);
+                    self.command_line.set_content(format!("已删除歌单《{}》", name).as_str());
+                },
+                Err(err) => self.command_line.set_content(err.to_string().as_str()),
+            }
+        }
+    }
+
+    /// 根据当前命令行输入刷新补全候选列表
+    async fn refresh_completion(&mut self) {
+        const PREFIXES: [&str; 3] = ["collect ", "uncollect ", "playlist delete "];
+        let content = self.command_line.get_content();
+
+        self.completion = None;
+        let Some(prefix) = PREFIXES.iter().find(|p| content.starts_with(**p)) else {
+            return;
+        };
+        let arg = &content[prefix.len()..];
+        let names: Vec<String> = player
+            .lock()
+            .await
+            .songlists()
+            .iter()
+            .filter(|sl| !sl.subscribed && sl.special_type != 5)
+            .map(|sl| sl.name.clone())
+            .collect();
+        let candidates = filter_candidates(arg, &names);
+        if candidates.is_empty() {
+            return;
+        }
+
+        self.completion = Some(CompletionState { prefix: prefix.to_string(), candidates, selected: 0 });
     }
 
     async fn update_login_model(&mut self) -> Result<bool> {
@@ -570,5 +814,53 @@ impl<'a> App<'a> {
 
         self.need_re_update_view = true;
         self.current_screen = to_screen;
+    }
+}
+
+/// 过滤候选：不区分大小写，前缀匹配优先于中间子串匹配，同级保持原顺序
+fn filter_candidates(arg: &str, names: &[String]) -> Vec<String> {
+    let arg = arg.to_lowercase();
+    let mut prefix_matches = Vec::new();
+    let mut substring_matches = Vec::new();
+    for name in names {
+        let lower = name.to_lowercase();
+        if lower.starts_with(&arg) {
+            prefix_matches.push(name.clone());
+        } else if lower.contains(&arg) {
+            substring_matches.push(name.clone());
+        }
+    }
+    prefix_matches.extend(substring_matches);
+    prefix_matches
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_candidates;
+
+    fn names() -> Vec<String> {
+        vec!["JPOP".to_string(), "跑步精选".to_string(), "去跑步".to_string(), "KTV".to_string()]
+    }
+
+    #[test]
+    fn filters_case_insensitively() {
+        assert_eq!(filter_candidates("jpop", &names()), vec!["JPOP"]);
+        assert_eq!(filter_candidates("K", &names()), vec!["KTV"]);
+    }
+
+    #[test]
+    fn matches_substring_anywhere() {
+        assert_eq!(filter_candidates("跑步", &names()), vec!["跑步精选", "去跑步"]);
+    }
+
+    #[test]
+    fn ranks_prefix_matches_first() {
+        assert_eq!(filter_candidates("跑", &names()), vec!["跑步精选", "去跑步"]);
+    }
+
+    #[test]
+    fn empty_input_lists_all() {
+        assert_eq!(filter_candidates("", &names()).len(), 4);
+        assert!(filter_candidates("不存在的歌单", &names()).is_empty());
     }
 }

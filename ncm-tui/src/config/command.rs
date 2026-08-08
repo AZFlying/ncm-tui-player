@@ -24,6 +24,8 @@ pub enum Command {
     DownloadSong,
     DownloadPlaylist,
     DownloadFinished(String),
+    /// 在命令行区域显示一条提示消息
+    ShowMessage(String),
 
     Down,
     Up,
@@ -34,6 +36,18 @@ pub enum Command {
     EnterOrPlay,
     /// Alt + Enter，优先执行播放功能，所选项为菜单则对其执行 StartPlay
     Play,
+    /// 收藏当前播放歌曲到指定歌单（greedy 参数：命令词后所有文本即歌单名）
+    CollectToSonglist(String),
+    /// 从指定歌单移除当前播放歌曲
+    UncollectFromSonglist(String),
+    /// 创建歌单（命令路径）
+    CreateSonglist(String),
+    /// 按名删除歌单（命令路径，需确认）
+    DeleteSonglistByName(String),
+    /// n 键（快捷键路径，按屏幕分派：主界面=收藏当前歌曲入口，歌单屏=新建歌单入口）
+    NewOrCollect,
+    /// 删除/移除（快捷键路径，由歌单屏按焦点解释：左侧=删歌单，右侧=移除光标歌曲）
+    Delete,
     WhereIsThisSong,
     /// 播放自动切歌后同步 playlist 光标（不改变面板焦点）
     SyncPlaylistCursor,
@@ -90,6 +104,45 @@ impl Command {
                 (Some(other), None) => Err(anyhow!("download: Invalid target '{}'", other)),
                 (_, Some(_)) => Err(anyhow!("download: Too many arguments")),
             },
+            Some("collect") => {
+                let name = cmd_str.strip_prefix("collect").unwrap().trim();
+                if name.is_empty() {
+                    Err(anyhow!("collect: Missing argument SONGLIST_NAME"))
+                } else {
+                    Ok(Self::CollectToSonglist(name.to_string()))
+                }
+            },
+            Some("uncollect") => {
+                let name = cmd_str.strip_prefix("uncollect").unwrap().trim();
+                if name.is_empty() {
+                    Err(anyhow!("uncollect: Missing argument SONGLIST_NAME"))
+                } else {
+                    Ok(Self::UncollectFromSonglist(name.to_string()))
+                }
+            },
+            Some("playlist") => {
+                let rest = cmd_str.strip_prefix("playlist").unwrap().trim();
+                match tokens.next() {
+                    Some("create") => {
+                        let name = rest.strip_prefix("create").unwrap().trim();
+                        if name.is_empty() {
+                            Err(anyhow!("playlist create: Missing argument SONGLIST_NAME"))
+                        } else {
+                            Ok(Self::CreateSonglist(name.to_string()))
+                        }
+                    },
+                    Some("delete") => {
+                        let name = rest.strip_prefix("delete").unwrap().trim();
+                        if name.is_empty() {
+                            Err(anyhow!("playlist delete: Missing argument SONGLIST_NAME"))
+                        } else {
+                            Ok(Self::DeleteSonglistByName(name.to_string()))
+                        }
+                    },
+                    Some(other) => Err(anyhow!("playlist: Invalid action '{}'", other)),
+                    None => Err(anyhow!("playlist: Missing argument create|delete")),
+                }
+            },
             Some("where") => match tokens.next() {
                 Some("this") => Ok(Self::WhereIsThisSong),
                 Some(other) => Err(anyhow!("where: Invalid argument '{}'", other)),
@@ -140,5 +193,34 @@ mod tests {
         assert!(Command::parse("download").is_err());
         assert!(Command::parse("download album").is_err());
         assert!(Command::parse("download song extra").is_err());
+    }
+
+    #[test]
+    fn parses_collect_commands_greedily() {
+        assert!(matches!(
+            Command::parse("collect 我的 跑步 歌单").unwrap(),
+            Command::CollectToSonglist(name) if name == "我的 跑步 歌单"
+        ));
+        assert!(matches!(
+            Command::parse("uncollect 跑步").unwrap(),
+            Command::UncollectFromSonglist(name) if name == "跑步"
+        ));
+        assert!(Command::parse("collect").is_err());
+        assert!(Command::parse("uncollect").is_err());
+    }
+
+    #[test]
+    fn parses_playlist_commands_greedily() {
+        assert!(matches!(
+            Command::parse("playlist create 新 歌单").unwrap(),
+            Command::CreateSonglist(name) if name == "新 歌单"
+        ));
+        assert!(matches!(
+            Command::parse("playlist delete 旧歌单").unwrap(),
+            Command::DeleteSonglistByName(name) if name == "旧歌单"
+        ));
+        assert!(Command::parse("playlist").is_err());
+        assert!(Command::parse("playlist create").is_err());
+        assert!(Command::parse("playlist rename x").is_err());
     }
 }

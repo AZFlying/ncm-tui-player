@@ -183,6 +183,62 @@ impl<'a> Controller for SonglistsScreen<'a> {
                 self.focus_panel_inside(Panels::SonglistContent);
             },
 
+            // 删除选中的自建歌单（进入 App 确认流）
+            (Delete, SonglistCandidatesInside) => {
+                if let Some(songlist) = self.songlist_candidates_panel.get_selected_songlist() {
+                    let mut command_queue_guard = command_queue.lock().await;
+                    if songlist.subscribed {
+                        command_queue_guard.push_back(ShowMessage("不能删除收藏的歌单".to_string()));
+                    } else if songlist.special_type == 5 {
+                        command_queue_guard.push_back(ShowMessage("不能删除「我喜欢的音乐」".to_string()));
+                    } else {
+                        command_queue_guard.push_back(DeleteSonglistByName(songlist.name));
+                    }
+                }
+            },
+            // 从当前浏览的歌单移除光标所在歌曲
+            (Delete, SonglistContentInside) => {
+                if let Some(songlist) = self.current_selected_songlist.clone() {
+                    if songlist.subscribed || songlist.special_type == 5 {
+                        command_queue.lock().await.push_back(ShowMessage("只能对自建歌单移除歌曲".to_string()));
+                    } else if let Some(song) = self.songlist_content_panel.get_selected_song() {
+                        let result = {
+                            let ncm_client_guard = ncm_client.lock().await;
+                            ncm_client_guard.update_songlist_tracks(false, songlist.id, song.id).await
+                        };
+                        match result {
+                            Ok(()) => {
+                                let message = format!("已从《{}》移除：《{}》", songlist.name, song.name);
+                                let songlist_id = songlist.id;
+                                // 本地移除该歌曲并刷新右侧面板，避免服务端缓存导致的刷新滞后
+                                let mut songlist = songlist;
+                                songlist.songs.retain(|s| s.id != song.id);
+                                songlist.songs_count = songlist.songs_count.saturating_sub(1);
+                                let downloaded_song_ids = ncm_client.lock().await.downloaded_song_ids();
+                                self.songlist_content_panel.set_model(&songlist.name, &songlist.songs, &downloaded_song_ids);
+                                self.current_selected_songlist = Some(songlist);
+
+                                // 同步左侧歌单计数
+                                let mut player_guard = player.lock().await;
+                                if let Some(sl) = player_guard.songlists_mut().iter_mut().find(|sl| sl.id == songlist_id) {
+                                    sl.songs_count = sl.songs_count.saturating_sub(1);
+                                }
+                                drop(player_guard);
+                                command_queue.lock().await.push_back(RefreshPlaylist);
+                                command_queue.lock().await.push_back(ShowMessage(message));
+                            },
+                            Err(err) => {
+                                command_queue.lock().await.push_back(ShowMessage(err.to_string()));
+                            },
+                        }
+                    }
+                }
+            },
+            // 刷新左侧歌单列表
+            (RefreshPlaylist, _) => {
+                self.songlist_candidates_panel.handle_event(cmd).await?;
+            },
+
             //
             (_, _) => {
                 return Ok(false);

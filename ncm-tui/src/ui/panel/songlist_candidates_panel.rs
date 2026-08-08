@@ -124,6 +124,10 @@ impl<'a> Controller for SonglistsPanel<'a> {
             },
             Command::SearchForward(_) => {},
             Command::SearchBackward(_) => {},
+            Command::RefreshPlaylist => {
+                // 清空缓存行，update_model 时从 player 重新拉取
+                self.songlists_table_rows.clear();
+            },
             _ => {},
         }
 
