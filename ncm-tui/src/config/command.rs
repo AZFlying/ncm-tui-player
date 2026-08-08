@@ -11,6 +11,8 @@ pub enum Command {
     Logout,
     PlayOrPause,
     SetVolume(f64),
+    VolumeUp,
+    VolumeDown,
     SwitchPlayMode(PlayMode),
     StartPlay,
     NextSong,

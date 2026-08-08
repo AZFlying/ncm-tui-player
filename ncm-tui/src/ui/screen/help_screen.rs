@@ -26,11 +26,13 @@ impl<'a> HelpScreen<'a> {
             Go To Help Screen (Here):               {}\n\
             Play Next Song:                         {}\n\
             Play Previous Song:                     {}\n\
+            Volume Down 5%:                         {}\n\
+            Volume Up 5%:                           {}\n\
             *Switch To Command Line Mode:           {}\n\
             Search Forward:                         {}\n\
             Search Backward:                        {}\n\
             Quit:                                   {}",
-            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "0 / F1", ">", "<", ":", "/", "?", "q",
+            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "q",
         ));
         let normal_mode_help_page = Paragraph::new(normal_mode_help_text)
             .block(Block::default().title("普通模式").borders(Borders::ALL))
