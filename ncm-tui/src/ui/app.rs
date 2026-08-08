@@ -268,15 +268,30 @@ impl<'a> App<'a> {
                     player.lock().await.set_play_mode(play_mode);
                 },
                 Command::StartPlay => {
-                    if let Err(e) = player.lock().await.start_play(ncm_client.lock().await).await {
+                    let mut player_guard = player.lock().await;
+                    if let Err(e) = player_guard.start_play(ncm_client.lock().await).await {
                         self.command_line.set_content(e.to_string().as_str());
+                    } else {
+                        // 光标跳转到播放歌曲，并将焦点移到 playlist 面板
+                        command_queue.lock().await.push_back(Command::WhereIsThisSong);
                     }
                 },
                 Command::NextSong => {
-                    player.lock().await.play_next_song_now(ncm_client.lock().await).await?;
+                    let mut player_guard = player.lock().await;
+                    let prev_index = player_guard.current_song_index();
+                    player_guard.play_next_song_now(ncm_client.lock().await).await?;
+                    // 切歌被防抖拦截时索引不变，不移动光标
+                    if player_guard.current_song_index() != prev_index {
+                        command_queue.lock().await.push_back(Command::SyncPlaylistCursor);
+                    }
                 },
                 Command::PrevSong => {
-                    player.lock().await.play_prev_song_now(ncm_client.lock().await).await?;
+                    let mut player_guard = player.lock().await;
+                    let prev_index = player_guard.current_song_index();
+                    player_guard.play_prev_song_now(ncm_client.lock().await).await?;
+                    if player_guard.current_song_index() != prev_index {
+                        command_queue.lock().await.push_back(Command::SyncPlaylistCursor);
+                    }
                 },
                 Command::SetCurrentSongLiked(requested) => {
                     let song = player.lock().await.active_song();
