@@ -291,6 +291,45 @@ impl<'a> App<'a> {
                         self.command_line.set_content("当前没有正在播放或暂停的歌曲");
                     }
                 },
+                Command::DownloadSong => {
+                    let song = match self.current_screen {
+                        ScreenEnum::Main => self.main_screen.selected_song(),
+                        ScreenEnum::Songlists => self.songlists_screen.selected_song(),
+                        _ => None,
+                    };
+                    if let Some(song) = song {
+                        self.command_line.set_content(format!("已开始下载歌曲《{}》", song.name).as_str());
+                        actions::download_song(song);
+                    } else {
+                        self.command_line.set_content("当前界面没有已选择的歌曲");
+                    }
+                },
+                Command::DownloadPlaylist => match self.current_screen {
+                    ScreenEnum::Main => {
+                        let (name, songs) = {
+                            let player_guard = player.lock().await;
+                            (player_guard.current_playlist_name().clone(), player_guard.current_playlist().clone())
+                        };
+                        if songs.is_empty() {
+                            self.command_line.set_content("当前播放列表为空");
+                        } else {
+                            self.command_line.set_content(format!("已开始下载歌单《{}》", name).as_str());
+                            actions::download_playlist(name, songs);
+                        }
+                    },
+                    ScreenEnum::Songlists => {
+                        if let Some(songlist) = self.songlists_screen.selected_songlist() {
+                            self.command_line.set_content(format!("已开始下载歌单《{}》", songlist.name).as_str());
+                            actions::download_unloaded_playlist(songlist);
+                        } else {
+                            self.command_line.set_content("当前没有已选择的歌单");
+                        }
+                    },
+                    _ => self.command_line.set_content("当前界面不支持下载歌单"),
+                },
+                Command::DownloadFinished(message) => {
+                    self.command_line.set_content(&message);
+                },
                 Command::SearchForward(search_keywords) => {
                     self.switch_to_search_mode(search_keywords);
                 },

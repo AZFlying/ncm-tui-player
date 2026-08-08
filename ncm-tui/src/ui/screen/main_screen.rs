@@ -2,6 +2,7 @@ use crate::config::Command;
 use crate::ui::panel::{LyricPanel, PanelFocusedStatus, PlaylistPanel};
 use crate::ui::Controller;
 use anyhow::Result;
+use ncm_api::model::Song;
 use ratatui::layout::Rect;
 use ratatui::prelude::*;
 use ratatui::Frame;
@@ -34,6 +35,10 @@ impl<'a> MainScreen<'a> {
             playlist_panel: PlaylistPanel::new(PanelFocusedStatus::Outside),
             lyric_panel: LyricPanel::new(PanelFocusedStatus::Nop),
         }
+    }
+
+    pub fn selected_song(&self) -> Option<Song> {
+        self.playlist_panel.get_selected_song()
     }
 }
 

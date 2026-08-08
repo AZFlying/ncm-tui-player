@@ -15,6 +15,7 @@ pub struct Path {
     pub settings: PathBuf,
     pub login_cookie: PathBuf,
     pub lyrics: PathBuf,
+    pub downloads: PathBuf,
 }
 
 impl Path {
@@ -45,6 +46,8 @@ impl Path {
             fs::create_dir_all(&lyrics).expect("Couldn't create lyrics dir.");
         }
 
+        let downloads = data.clone().join("downloads");
+
         Self {
             data,
             config,
@@ -53,6 +56,7 @@ impl Path {
             settings,
             login_cookie,
             lyrics,
+            downloads,
         }
     }
 }

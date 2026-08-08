@@ -4,7 +4,7 @@ mod settings;
 
 use crate::model::{Account, FromJson, LyricLine, Lyrics, Song, Songlist};
 use crate::responses::login::*;
-use crate::settings::Settings;
+use crate::settings::{Settings, DOWNLOAD_QUALITIES};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::{debug, error};
@@ -15,7 +15,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tokio::io::AsyncWriteExt;
 use tokio::process;
 
 pub struct NcmClient {
@@ -23,6 +24,7 @@ pub struct NcmClient {
     cookie_path: PathBuf,
     lyrics_path: PathBuf,
     settings_path: PathBuf,
+    default_download_path: PathBuf,
 
     api_child_process: Option<process::Child>,
     http_client: Client,
@@ -34,13 +36,32 @@ pub struct NcmClient {
     liked_song_ids: HashSet<u64>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum DownloadResult {
+    Downloaded(PathBuf),
+    AlreadyExists(PathBuf),
+}
+
+struct SongResource {
+    url: String,
+    quality_level: String,
+    file_type: Option<String>,
+}
+
 impl NcmClient {
-    pub fn new(api_program_path: PathBuf, cookie_path: PathBuf, lyrics_path: PathBuf, settings_path: PathBuf) -> Self {
+    pub fn new(
+        api_program_path: PathBuf,
+        cookie_path: PathBuf,
+        lyrics_path: PathBuf,
+        settings_path: PathBuf,
+        default_download_path: PathBuf,
+    ) -> Self {
         Self {
             api_program_path,
             cookie_path,
             lyrics_path,
             settings_path,
+            default_download_path,
             api_child_process: None,
             api_url: String::new(),
             http_client: ClientBuilder::new().no_proxy().build().expect("failed to build HTTP client"),
@@ -54,6 +75,18 @@ impl NcmClient {
     /// 初始化，尝试读取本地设置文件
     pub fn init(&mut self) {
         self.settings = self.read_settings();
+        if self.settings.download_path.as_os_str().is_empty() {
+            self.settings.download_path = self.default_download_path.clone();
+        }
+        if self.settings.download_file_name_pattern.is_empty() {
+            self.settings.download_file_name_pattern = Settings::default().download_file_name_pattern;
+        }
+        if self.settings.download_lyric_name_pattern.is_empty() {
+            self.settings.download_lyric_name_pattern = Settings::default().download_lyric_name_pattern;
+        }
+        if let Err(err) = fs::create_dir_all(&self.settings.download_path) {
+            error!("failed to create download dir {:?}: {}", self.settings.download_path, err);
+        }
 
         // 更新（应对本地无设置文件或Settings数据结构更新的情况）
         self.store_settings();
@@ -405,52 +438,22 @@ impl NcmClient {
 
     /// 装载歌单内的所有歌曲
     pub async fn load_songlist_songs(&self, songlist: &mut Songlist) -> Result<()> {
-        songlist.songs = Vec::new();
-
-        let mut offset = 0;
-
-        while songlist.songs.len() % 1000 == 0 {
-            let playlist_detail_response = self
-                .http_client
-                .post(format!("{}/playlist/track/all?id={}&limit=1000&offset={}", &self.api_url, songlist.id, offset))
-                .form(&[("cookie", &self.cookie)])
-                .send()
-                .await?;
-
-            offset += 1000;
-
-            let v_playlist_detail: Value = serde_json::from_slice(&playlist_detail_response.bytes().await?)?;
-
-            // 状态码报错
-            if v_playlist_detail["code"].as_u64().unwrap() != 200 {
-                return Err(anyhow!("failed to load songs into songlist, code {}", v_playlist_detail["code"].as_u64().unwrap()));
-            }
-            // 获取到的歌曲列表为空
-            if v_playlist_detail["songs"].as_array().unwrap().is_empty() {
-                break;
-            }
-
-            // 局部反序列化并装载
-            for track in v_playlist_detail["songs"].as_array().unwrap() {
-                let song = Song {
-                    name: track["name"].as_str().unwrap().to_string(),
-                    id: track["id"].as_u64().unwrap(),
-                    singer: track["ar"][0]["name"].as_str().unwrap_or("Unknown").to_string(),
-                    singer_id: track["ar"][0]["id"].as_u64().unwrap(),
-                    album: track["al"]["name"].as_str().unwrap_or("Unknown").to_string(),
-                    album_id: track["al"]["id"].as_u64().unwrap(),
-                    duration: track["dt"].as_u64().unwrap(),
-                    song_url: None,
-                    quality_level: String::new(),
-                    liked: self.is_song_liked(track["id"].as_u64().unwrap()),
-                };
-                songlist.songs.push(song);
-            }
-        }
-
+        songlist.songs = request_songlist_songs(&self.http_client, &self.api_url, &self.cookie, &self.liked_song_ids, songlist.id).await?;
         debug!("{:?}", songlist.songs);
-
         Ok(())
+    }
+
+    /// 创建不借用 NcmClient 的歌单加载 future，供后台下载使用。
+    pub fn load_songlist(&self, mut songlist: Songlist) -> impl std::future::Future<Output = Result<Songlist>> + Send + 'static {
+        let http_client = self.http_client.clone();
+        let api_url = self.api_url.clone();
+        let cookie = self.cookie.clone();
+        let liked_song_ids = self.liked_song_ids.clone();
+
+        async move {
+            songlist.songs = request_songlist_songs(&http_client, &api_url, &cookie, &liked_song_ids, songlist.id).await?;
+            Ok(songlist)
+        }
     }
 }
 
@@ -538,34 +541,74 @@ impl NcmClient {
     pub async fn load_song_url(&self, song: &mut Song) -> Result<()> {
         song.song_url = None;
 
-        let song_url_response = self
-            .http_client
-            .post(format!("{}/song/url/v1?id={}&level={}", &self.api_url, song.id, "jymaster"))
-            .form(&[("cookie", &self.cookie)])
-            .send()
-            .await?;
-
-        let v_song_url: Value = serde_json::from_slice(&song_url_response.bytes().await?)?;
-
-        if let Some(song_url) = v_song_url["data"][0]["url"].as_str() {
-            song.song_url = Some(song_url.to_string());
-        }
-        if let Some(quality_level) = v_song_url["data"][0]["level"].as_str() {
-            song.quality_level = match quality_level {
-                "standard" => String::from("标准"),
-                "higher" => String::from("较高"),
-                "exhigh" => String::from("极高"),
-                "lossless" => String::from("无损"),
-                "hires" => String::from("Hi-Res"),
-                "jyeffect" => String::from("高清环绕声"),
-                "sky" => String::from("沉浸环绕声"),
-                "dolby" => String::from("杜比全景声"),
-                "jymaster" => String::from("超清母带"),
-                _ => quality_level.to_string(),
-            };
-        }
+        let resource = request_song_resource(&self.http_client, &self.api_url, &self.cookie, song.id, "jymaster").await?;
+        song.song_url = Some(resource.url);
+        song.quality_level = quality_level_name(&resource.quality_level);
 
         Ok(())
+    }
+
+    /// 创建不借用 NcmClient 的下载 future，避免下载期间持有全局锁。
+    pub fn download_song(&self, song: Song) -> impl std::future::Future<Output = Result<DownloadResult>> + Send + 'static {
+        let http_client = self.http_client.clone();
+        let api_url = self.api_url.clone();
+        let cookie = self.cookie.clone();
+        let download_path = self.settings.download_path.clone();
+        let quality = self.settings.download_quality.clone();
+        let name_pattern = self.settings.download_file_name_pattern.clone();
+        let lyric_name_pattern = self.settings.download_lyric_name_pattern.clone();
+
+        async move {
+            validate_download_quality(&quality)?;
+
+            let result = if let Some(path) = find_local_song_with_quality(&download_path, song.id, &quality) {
+                DownloadResult::AlreadyExists(path)
+            } else {
+                let resource = request_song_resource(&http_client, &api_url, &cookie, song.id, &quality).await?;
+                let file_type = resource
+                    .file_type
+                    .filter(|file_type| !file_type.is_empty() && file_type.chars().all(|c| c.is_ascii_alphanumeric()))
+                    .ok_or_else(|| anyhow!("song {} response has no valid file type", song.id))?;
+
+                tokio::fs::create_dir_all(&download_path).await?;
+                let file_name = build_download_file_name(&song, &quality, &file_type, &name_pattern);
+                let final_path = download_path.join(file_name);
+                if final_path.is_file() {
+                    DownloadResult::AlreadyExists(final_path)
+                } else {
+                    let part_path = final_path.with_extension(format!("{}.part", file_type));
+
+                    let mut response = http_client.get(resource.url).send().await?.error_for_status()?;
+                    let mut file = tokio::fs::File::create(&part_path).await?;
+                    let mut written = 0;
+                    while let Some(chunk) = response.chunk().await? {
+                        file.write_all(&chunk).await?;
+                        written += chunk.len();
+                    }
+                    if written == 0 {
+                        return Err(anyhow!("song {} download returned an empty file", song.id));
+                    }
+                    file.flush().await?;
+                    drop(file);
+                    tokio::fs::rename(&part_path, &final_path).await?;
+
+                    DownloadResult::Downloaded(final_path)
+                }
+            };
+
+            // 歌词为附加产物，失败不影响歌曲下载结果
+            save_lyric_file(&http_client, &api_url, &cookie, &download_path, &song, &quality, &lyric_name_pattern).await;
+            Ok(result)
+        }
+    }
+
+    pub fn find_local_song(&self, song_id: u64) -> Option<PathBuf> {
+        find_local_song_file(&self.settings.download_path, song_id, Some(&self.settings.download_quality))
+    }
+
+    /// 下载目录中已下载歌曲的 ID 集合（忽略 .part 未完成文件）
+    pub fn downloaded_song_ids(&self) -> HashSet<u64> {
+        downloaded_song_ids_in(&self.settings.download_path)
     }
 
     /// 获取歌曲的歌词
@@ -634,6 +677,186 @@ impl NcmClient {
 
         Ok(lyrics)
     }
+}
+
+async fn request_songlist_songs(client: &Client, api_url: &str, cookie: &str, liked_song_ids: &HashSet<u64>, songlist_id: u64) -> Result<Vec<Song>> {
+    let mut result = Vec::new();
+    let mut offset = 0;
+
+    loop {
+        let response = client
+            .post(format!("{}/playlist/track/all?id={}&limit=1000&offset={}", api_url, songlist_id, offset))
+            .form(&[("cookie", cookie)])
+            .send()
+            .await?
+            .error_for_status()?;
+        let value: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if value["code"].as_u64() != Some(200) {
+            return Err(anyhow!("failed to load songs into songlist, code {:?}", value["code"]));
+        }
+        let tracks = value["songs"].as_array().ok_or_else(|| anyhow!("songlist {} response contains no songs", songlist_id))?;
+        if tracks.is_empty() {
+            break;
+        }
+
+        for track in tracks {
+            let id = track["id"].as_u64().ok_or_else(|| anyhow!("songlist {} contains a song without id", songlist_id))?;
+            result.push(Song {
+                name: track["name"].as_str().unwrap_or("Unknown").to_string(),
+                id,
+                singer: track["ar"][0]["name"].as_str().unwrap_or("Unknown").to_string(),
+                singer_id: track["ar"][0]["id"].as_u64().unwrap_or(0),
+                album: track["al"]["name"].as_str().unwrap_or("Unknown").to_string(),
+                album_id: track["al"]["id"].as_u64().unwrap_or(0),
+                duration: track["dt"].as_u64().unwrap_or(0),
+                song_url: None,
+                quality_level: String::new(),
+                liked: liked_song_ids.contains(&id),
+            });
+        }
+        if tracks.len() < 1000 {
+            break;
+        }
+        offset += 1000;
+    }
+    Ok(result)
+}
+
+async fn request_song_resource(client: &Client, api_url: &str, cookie: &str, song_id: u64, quality: &str) -> Result<SongResource> {
+    let response = client
+        .post(format!("{}/song/url/v1?id={}&level={}", api_url, song_id, quality))
+        .form(&[("cookie", cookie)])
+        .send()
+        .await?
+        .error_for_status()?;
+    let value: Value = serde_json::from_slice(&response.bytes().await?)?;
+    let data = value["data"].as_array().and_then(|data| data.first()).ok_or_else(|| anyhow!("song {} response contains no data", song_id))?;
+    let url = data["url"].as_str().ok_or_else(|| anyhow!("song {} is unavailable for download", song_id))?.to_string();
+
+    Ok(SongResource {
+        url,
+        quality_level: data["level"].as_str().unwrap_or(quality).to_string(),
+        file_type: data["type"].as_str().map(str::to_string),
+    })
+}
+
+async fn request_lyric_text(client: &Client, api_url: &str, cookie: &str, song_id: u64) -> Result<Option<String>> {
+    let response = client
+        .post(format!("{}/lyric?id={}", api_url, song_id))
+        .form(&[("cookie", cookie)])
+        .send()
+        .await?
+        .error_for_status()?;
+    let value: Value = serde_json::from_slice(&response.bytes().await?)?;
+    let text = value["lrc"]["lyric"].as_str().unwrap_or("").to_string();
+    Ok((!text.trim().is_empty()).then_some(text))
+}
+
+async fn save_lyric_file(client: &Client, api_url: &str, cookie: &str, download_path: &Path, song: &Song, quality: &str, name_pattern: &str) {
+    let lyric_path = download_path.join(format!("{}.lrc", render_name_pattern(song, quality, name_pattern)));
+    if lyric_path.is_file() {
+        return;
+    }
+    match request_lyric_text(client, api_url, cookie, song.id).await {
+        Ok(Some(text)) => {
+            if let Err(err) = tokio::fs::write(&lyric_path, text).await {
+                error!("failed to store lyric at {:?}: {}", lyric_path, err);
+            }
+        },
+        Ok(None) => debug!("song {} has no lyric, skip storing lyric file", song.id),
+        Err(err) => error!("failed to fetch lyric for song {}: {}", song.id, err),
+    }
+}
+
+fn validate_download_quality(quality: &str) -> Result<()> {
+    if DOWNLOAD_QUALITIES.contains(&quality) {
+        Ok(())
+    } else {
+        Err(anyhow!("invalid download_quality '{}'; supported values: {}", quality, DOWNLOAD_QUALITIES.join(", ")))
+    }
+}
+
+fn quality_level_name(quality: &str) -> String {
+    match quality {
+        "standard" => String::from("标准"),
+        "higher" => String::from("较高"),
+        "exhigh" => String::from("极高"),
+        "lossless" => String::from("无损"),
+        "hires" => String::from("Hi-Res"),
+        "jyeffect" => String::from("高清环绕声"),
+        "sky" => String::from("沉浸环绕声"),
+        "dolby" => String::from("杜比全景声"),
+        "jymaster" => String::from("超清母带"),
+        _ => quality.to_string(),
+    }
+}
+
+fn sanitize_file_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .collect();
+    let sanitized = sanitized.trim_matches(|c| c == ' ' || c == '.');
+    if sanitized.is_empty() { String::from("song") } else { sanitized.to_string() }
+}
+
+fn render_name_pattern(song: &Song, quality: &str, pattern: &str) -> String {
+    let stem = pattern
+        .replace("{name}", &sanitize_file_name(&song.name))
+        .replace("{singer}", &sanitize_file_name(&song.singer))
+        .replace("{album}", &sanitize_file_name(&song.album))
+        .replace("{quality}", quality)
+        .replace("{id}", &song.id.to_string());
+    sanitize_file_name(&stem)
+}
+
+fn build_download_file_name(song: &Song, quality: &str, file_type: &str, pattern: &str) -> String {
+    format!("{}.{}", render_name_pattern(song, quality, pattern), file_type)
+}
+
+// ponytail: 匹配依赖“id 在开头或结尾、quality 被 - 包裹”，默认/旧命名均满足
+fn file_stem_matches(stem: &str, song_id: u64, quality: Option<&str>) -> bool {
+    let id_matches = stem.ends_with(&format!("-{}", song_id)) || stem.starts_with(&format!("{}-", song_id));
+    let quality_matches = quality.is_none_or(|quality| stem.contains(&format!("-{}-", quality)));
+    id_matches && quality_matches
+}
+
+fn find_local_song_with_quality(download_path: &Path, song_id: u64, quality: &str) -> Option<PathBuf> {
+    find_local_song_file(download_path, song_id, Some(quality))
+}
+
+fn find_local_song_file(download_path: &Path, song_id: u64, preferred_quality: Option<&str>) -> Option<PathBuf> {
+    let stem_of = |path: &PathBuf| path.file_stem().and_then(|stem| stem.to_str()).map(str::to_string);
+    let mut paths: Vec<PathBuf> = fs::read_dir(download_path)
+        .ok()?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.is_file()
+                && path.extension().and_then(|extension| extension.to_str()) != Some("part")
+                && stem_of(path).is_some_and(|stem| file_stem_matches(&stem, song_id, None))
+        })
+        .collect();
+    paths.sort();
+
+    paths
+        .iter()
+        .find(|path| stem_of(path).is_some_and(|stem| file_stem_matches(&stem, song_id, preferred_quality)))
+        .cloned()
+        .or_else(|| paths.into_iter().next())
+}
+
+// ponytail: 仅按首/尾数字段解析 id，曲名自带 "-数字" 结尾且非本应用下载文件时可能误判，概率低
+fn song_id_from_file_stem(stem: &str) -> Option<u64> {
+    stem.rsplit('-').next().and_then(|s| s.parse().ok()).or_else(|| stem.split('-').next().and_then(|s| s.parse().ok()))
+}
+
+fn downloaded_song_ids_in(download_path: &Path) -> HashSet<u64> {
+    let Ok(entries) = fs::read_dir(download_path) else { return HashSet::new() };
+    entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.is_file() && path.extension().and_then(|extension| extension.to_str()) != Some("part"))
+        .filter_map(|path| path.file_stem().and_then(|stem| stem.to_str()).and_then(song_id_from_file_stem))
+        .collect()
 }
 
 #[inline]
@@ -729,4 +952,114 @@ fn encode_lyrics(origin_lyric_lines: Vec<String>, origin_trans_lyric_lines: Vec<
 
     lyrics.reverse();
     lyrics
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn test_dir() -> PathBuf {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!("ncm-api-test-{}-{}", std::process::id(), NEXT_ID.fetch_add(1, Ordering::Relaxed)));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn song(id: u64) -> Song {
+        Song {
+            name: String::from("Test Song"), id, singer: String::new(), singer_id: 0, album: String::new(), album_id: 0,
+            duration: 0, song_url: None, quality_level: String::new(), liked: false,
+        }
+    }
+
+    #[test]
+    fn validates_download_quality() {
+        for quality in DOWNLOAD_QUALITIES {
+            assert!(validate_download_quality(quality).is_ok());
+        }
+        assert!(validate_download_quality("unknown").is_err());
+    }
+
+    #[test]
+    fn sanitizes_cross_platform_file_names() {
+        assert_eq!(sanitize_file_name(" A/\\:*?\"<>|\u{7f}. "), "A__________");
+        assert_eq!(sanitize_file_name(" .. "), "song");
+    }
+
+    #[test]
+    fn builds_download_file_name_from_pattern() {
+        let song = Song { name: String::from("晴天"), singer: String::from("周杰伦"), album: String::from("叶惠美"), ..song(42) };
+        assert_eq!(
+            build_download_file_name(&song, "lossless", "flac", "{name}-{singer}-{album}-{quality}-{id}"),
+            "晴天-周杰伦-叶惠美-lossless-42.flac"
+        );
+        assert_eq!(build_download_file_name(&song, "lossless", "flac", "{id}-{name}"), "42-晴天.flac");
+        assert_eq!(render_name_pattern(&song, "lossless", "{name}-Lyric"), "晴天-Lyric");
+        assert_eq!(render_name_pattern(&song, "lossless", "{name}-{id}-Lyric"), "晴天-42-Lyric");
+    }
+
+    #[test]
+    fn collects_downloaded_song_ids_ignoring_parts() {
+        let dir = test_dir();
+        File::create(dir.join("晴天-周杰伦-叶惠美-lossless-42.flac")).unwrap();
+        File::create(dir.join("43-jymaster-song.flac")).unwrap();
+        File::create(dir.join("song-a-x-lossless-44.flac.part")).unwrap();
+
+        let ids = downloaded_song_ids_in(&dir);
+        assert!(ids.contains(&42));
+        assert!(ids.contains(&43));
+        assert!(!ids.contains(&44));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn finds_preferred_quality_then_falls_back_and_ignores_parts() {
+        let dir = test_dir();
+        let fallback = dir.join("song-a-x-standard-42.mp3");
+        let preferred = dir.join("song-a-x-lossless-42.flac");
+        File::create(&fallback).unwrap();
+        File::create(&preferred).unwrap();
+        File::create(dir.join("song-a-x-lossless-42.flac.part")).unwrap();
+
+        assert_eq!(find_local_song_file(&dir, 42, Some("lossless")), Some(preferred.clone()));
+        fs::remove_file(preferred).unwrap();
+        assert_eq!(find_local_song_file(&dir, 42, Some("lossless")), Some(fallback.clone()));
+        // 兼容旧命名 {id}-{quality}-{name}
+        fs::remove_file(fallback).unwrap();
+        let legacy = dir.join("42-jymaster-song.flac");
+        File::create(&legacy).unwrap();
+        assert_eq!(find_local_song_file(&dir, 42, Some("jymaster")), Some(legacy));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn init_persists_default_download_path_for_old_settings() {
+        let dir = test_dir();
+        let settings_path = dir.join("settings.json");
+        let downloads = dir.join("downloads");
+        fs::write(&settings_path, r#"{"use_remote_api":false,"remote_api_url":"https://example.com/"}"#).unwrap();
+        let mut client = NcmClient::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), settings_path.clone(), downloads.clone());
+
+        client.init();
+
+        let saved: Settings = serde_json::from_str(&fs::read_to_string(settings_path).unwrap()).unwrap();
+        assert_eq!(saved.download_path, downloads);
+        assert_eq!(saved.download_lyric_name_pattern, "{name}-Lyric");
+        assert!(saved.download_path.is_dir());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn skips_existing_song_with_same_quality() {
+        let dir = test_dir();
+        let existing = dir.join("song-a-x-lossless-42.flac");
+        File::create(&existing).unwrap();
+        let mut client = NcmClient::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), PathBuf::new(), dir.clone());
+        client.settings.download_path = dir.clone();
+        client.settings.download_quality = String::from("lossless");
+
+        assert_eq!(client.download_song(song(42)).await.unwrap(), DownloadResult::AlreadyExists(existing));
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

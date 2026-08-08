@@ -56,6 +56,8 @@ impl<'a> HelpScreen<'a> {
             Like Current Song:                      {}\n\
             Unlike Current Song:                    {}\n\
             Start Auto Play:                        {} (Only under `list repeat mode` or `shuffle mode`)\n\
+            Download Selected Song:                 {}\n\
+            Download Selected Playlist:             {}\n\
             Jump To Current Song In Playlist:       {}\n\
             Jump To Top:                            {}\n\
             Jump To Bottom:                         {}\n\
@@ -79,6 +81,8 @@ impl<'a> HelpScreen<'a> {
             "like",
             "unlike",
             "start",
+            "download song",
+            "download playlist",
             "where this",
             "top",
             "bottom",

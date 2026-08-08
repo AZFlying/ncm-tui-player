@@ -3,7 +3,7 @@ use crate::ui::panel::{PanelFocusedStatus, PlaylistPanel, SonglistsPanel};
 use crate::ui::Controller;
 use crate::{command_queue, ncm_client, player};
 use log::debug;
-use ncm_api::model::Songlist;
+use ncm_api::model::{Song, Songlist};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::Style;
 use ratatui::Frame;
@@ -39,6 +39,14 @@ impl<'a> SonglistsScreen<'a> {
             songlist_candidates_panel: SonglistsPanel::new(PanelFocusedStatus::Outside),
             songlist_content_panel: PlaylistPanel::new(PanelFocusedStatus::Nop),
         }
+    }
+
+    pub fn selected_song(&self) -> Option<Song> {
+        self.songlist_content_panel.get_selected_song()
+    }
+
+    pub fn selected_songlist(&self) -> Option<Songlist> {
+        self.songlist_candidates_panel.get_selected_songlist()
     }
 }
 
@@ -110,9 +118,12 @@ impl<'a> Controller for SonglistsScreen<'a> {
             (EnterOrPlay, SonglistCandidatesInside) => {
                 // 加载歌单
                 if let Some(mut selected_songlist) = self.songlist_candidates_panel.get_selected_songlist() {
-                    ncm_client.lock().await.load_songlist_songs(&mut selected_songlist).await?;
+                    let ncm_client_guard = ncm_client.lock().await;
+                    ncm_client_guard.load_songlist_songs(&mut selected_songlist).await?;
+                    let downloaded_song_ids = ncm_client_guard.downloaded_song_ids();
+                    drop(ncm_client_guard);
 
-                    self.songlist_content_panel.set_model(&selected_songlist.name, &selected_songlist.songs);
+                    self.songlist_content_panel.set_model(&selected_songlist.name, &selected_songlist.songs, &downloaded_song_ids);
 
                     self.current_selected_songlist = Some(selected_songlist);
                 }
