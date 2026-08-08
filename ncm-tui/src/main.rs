@@ -63,7 +63,14 @@ async fn main() -> Result<()> {
 
     loop {
         // 检查播放情况
-        player.lock().await.auto_play(ncm_client.lock().await).await?;
+        let mut player_guard = player.lock().await;
+        let prev_song_index = player_guard.current_song_index();
+        player_guard.auto_play(ncm_client.lock().await).await?;
+        // 播放结束自动切歌后，同步 playlist 光标到正在播放的歌曲
+        if player_guard.current_song_index() != prev_song_index {
+            command_queue.lock().await.push_back(Command::SyncPlaylistCursor);
+        }
+        drop(player_guard);
 
         if let Some((song_id, source_id, time)) = player.lock().await.take_pending_scrobble() {
             if let Err(err) = ncm_client.lock().await.scrobble(song_id, source_id, time).await {

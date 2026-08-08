@@ -360,6 +360,7 @@ impl<'a> App<'a> {
                     | Command::EnterOrPlay
                     | Command::Play
                     | Command::WhereIsThisSong
+                    | Command::SyncPlaylistCursor
                     | Command::GoToTop
                     | Command::GoToBottom
                     | Command::SearchForward(_)
