@@ -541,7 +541,9 @@ impl NcmClient {
     pub async fn load_song_url(&self, song: &mut Song) -> Result<()> {
         song.song_url = None;
 
-        let resource = request_song_resource(&self.http_client, &self.api_url, &self.cookie, song.id, "jymaster").await?;
+        let quality = &self.settings.play_quality;
+        validate_quality(quality)?;
+        let resource = request_song_resource(&self.http_client, &self.api_url, &self.cookie, song.id, quality).await?;
         song.song_url = Some(resource.url);
         song.quality_level = quality_level_name(&resource.quality_level);
 
@@ -559,7 +561,7 @@ impl NcmClient {
         let lyric_name_pattern = self.settings.download_lyric_name_pattern.clone();
 
         async move {
-            validate_download_quality(&quality)?;
+            validate_quality(&quality)?;
 
             let result = if let Some(path) = find_local_song_with_quality(&download_path, song.id, &quality) {
                 DownloadResult::AlreadyExists(path)
@@ -768,11 +770,11 @@ async fn save_lyric_file(client: &Client, api_url: &str, cookie: &str, download_
     }
 }
 
-fn validate_download_quality(quality: &str) -> Result<()> {
+fn validate_quality(quality: &str) -> Result<()> {
     if DOWNLOAD_QUALITIES.contains(&quality) {
         Ok(())
     } else {
-        Err(anyhow!("invalid download_quality '{}'; supported values: {}", quality, DOWNLOAD_QUALITIES.join(", ")))
+        Err(anyhow!("invalid quality '{}'; supported values: {}", quality, DOWNLOAD_QUALITIES.join(", ")))
     }
 }
 
@@ -976,9 +978,9 @@ mod tests {
     #[test]
     fn validates_download_quality() {
         for quality in DOWNLOAD_QUALITIES {
-            assert!(validate_download_quality(quality).is_ok());
+            assert!(validate_quality(quality).is_ok());
         }
-        assert!(validate_download_quality("unknown").is_err());
+        assert!(validate_quality("unknown").is_err());
     }
 
     #[test]
