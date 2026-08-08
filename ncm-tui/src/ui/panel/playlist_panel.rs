@@ -9,12 +9,14 @@ use ratatui::prelude::{Margin, Style};
 use ratatui::style::palette::tailwind;
 use ratatui::widgets::{Block, Borders, Cell, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState};
 use ratatui::Frame;
+use std::collections::HashSet;
 
 pub struct PlaylistPanel<'a> {
     // model
     pub focused_status: PanelFocusedStatus, // 聚焦状态交给父 screen 管理，面板自身只读不写
     //
     playlist_name: String,
+    playlist: Vec<Song>,
     playlist_table_rows: Vec<Row<'a>>,
     playlist_table_state: TableState,
     scrollbar_state: ScrollbarState,
@@ -28,6 +30,7 @@ impl<'a> PlaylistPanel<'a> {
         Self {
             focused_status,
             playlist_name: String::new(),
+            playlist: Vec::new(),
             playlist_table_rows: Vec::new(),
             playlist_table_state: TableState::new(),
             scrollbar_state: ScrollbarState::new(0),
@@ -37,6 +40,10 @@ impl<'a> PlaylistPanel<'a> {
 }
 
 impl<'a> PlaylistPanel<'a> {
+    pub fn get_selected_song(&self) -> Option<Song> {
+        self.playlist_table_state.selected().and_then(|selected| self.playlist.get(selected)).cloned()
+    }
+
     /// 根据当前播放列表更新 model
     async fn update_model_by_current_playlist(&mut self) -> anyhow::Result<()> {
         let player_guard = player.lock().await;
@@ -48,7 +55,8 @@ impl<'a> PlaylistPanel<'a> {
             None
         };
         let current_playlist = player_guard.current_playlist();
-        self.set_model(current_playlist_name, current_playlist);
+        let downloaded_song_ids = ncm_client.lock().await.downloaded_song_ids();
+        self.set_model(current_playlist_name, current_playlist, &downloaded_song_ids);
         if let Some(index) = selected.filter(|index| *index < current_playlist.len()) {
             self.playlist_table_state.select(Some(index));
             self.scrollbar_state = self.scrollbar_state.position(index);
@@ -60,13 +68,20 @@ impl<'a> PlaylistPanel<'a> {
     /// 手动设置 model
     ///
     /// 在 main_screen 由 self.update_model_by_current_playlist() 调用，在 playlist_screen 由外部直接调用
-    pub fn set_model(&mut self, playlist_name: &String, playlist: &Vec<Song>) {
+    pub fn set_model(&mut self, playlist_name: &String, playlist: &Vec<Song>, downloaded_song_ids: &HashSet<u64>) {
         self.playlist_name = playlist_name.clone();
+        self.playlist = playlist.clone();
         self.playlist_table_rows = playlist
             .iter()
             .map(|song| {
+                let prefix = match (song.liked, downloaded_song_ids.contains(&song.id)) {
+                    (true, true) => "♥↓ ",
+                    (true, false) => "♥ ",
+                    (false, true) => "↓ ",
+                    (false, false) => "",
+                };
                 Row::from_iter(vec![
-                    Cell::new(if song.liked { format!("♥ {}", song.name) } else { song.name.clone() }),
+                    Cell::new(format!("{}{}", prefix, song.name)),
                     Cell::new(song.singer.clone()),
                     Cell::new(song.album.clone()),
                     Cell::new(format!("{:02}:{:02}", song.duration.clone() / 60000, song.duration.clone() % 60000 / 1000)),

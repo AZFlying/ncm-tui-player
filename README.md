@@ -55,6 +55,7 @@
 
 ### 歌曲
 - [ ] 全局搜索歌曲
+- [x] 下载歌曲 / 歌单，并优先播放本应用下载的本地文件
 - [ ] 歌曲操作
   - [x] 喜欢 / 取消喜欢（按 `l` 切换，或使用 `like` / `unlike` 命令）
   - [ ] 查看所属专辑
@@ -139,6 +140,34 @@ npm install
 - [Gstreamer](https://gstreamer.freedesktop.org/download)
 
 Gstreamer 的安装与 `local api` 模式下相同。
+
+## 下载与本地播放
+
+命令行模式支持：
+
+- `download song`：下载当前高亮歌曲（主界面或歌单界面右侧）。
+- `download playlist`：下载当前播放列表，或歌单界面左侧高亮歌单。
+
+下载在后台顺序执行。播放器会优先查找本应用下载的同 ID 歌曲，没有本地文件时再在线播放。
+下载歌曲时会同时下载歌词文件（默认命名 `{曲名}-Lyric.lrc`），歌词下载失败不影响歌曲本身。
+已下载的歌曲在播放列表曲名前显示 `↓` 标识（与喜欢的 `♥` 叠加时显示为 `♥↓`）。
+
+下载配置位于应用数据目录的 `settings.json`（Linux 默认为 `~/.local/share/ncm-tui-player/settings.json`）。首次启动后可修改：
+
+```json
+{
+  "download_path": "/absolute/path/to/music",
+  "download_quality": "jymaster",
+  "download_file_name_pattern": "{name}-{singer}-{album}-{quality}-{id}",
+  "download_lyric_name_pattern": "{name}-Lyric"
+}
+```
+
+`download_path` 建议使用绝对路径，修改后重启生效。`download_quality` 支持：`standard`、`higher`、`exhigh`、`lossless`、`hires`、`jyeffect`、`sky`、`dolby`、`jymaster`。该字段只控制下载音质，不改变在线播放音质。
+
+`download_file_name_pattern` 控制下载文件命名，可用占位符：`{name}`（曲名）、`{singer}`（作者）、`{album}`（专辑）、`{quality}`（请求音质）、`{id}`（歌曲 ID）。为保证本地优先播放与重复下载检测正常工作，命名中需保留 `{id}`（置于开头或结尾）与 `{quality}`（两侧以 `-` 分隔）。
+
+`download_lyric_name_pattern` 控制歌词文件命名（扩展名固定为 `.lrc`），支持同一套占位符。默认 `{name}-Lyric` 只含曲名，同名歌曲会共用先下载的歌词文件；如需区分可自行加入 `{id}` 等占位符。
 
 ## 运行说明
 

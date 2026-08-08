@@ -19,6 +19,9 @@ pub enum Command {
     SearchForward(Vec<String>),
     SearchBackward(Vec<String>),
     RefreshPlaylist,
+    DownloadSong,
+    DownloadPlaylist,
+    DownloadFinished(String),
 
     Down,
     Up,
@@ -76,6 +79,13 @@ impl Command {
             Some("like") => Ok(Self::SetCurrentSongLiked(Some(true))),
             Some("unlike") => Ok(Self::SetCurrentSongLiked(Some(false))),
             Some("start") => Ok(Self::StartPlay),
+            Some("download") => match (tokens.next(), tokens.next()) {
+                (Some("song"), None) => Ok(Self::DownloadSong),
+                (Some("playlist"), None) => Ok(Self::DownloadPlaylist),
+                (None, _) => Err(anyhow!("download: Missing argument song|playlist")),
+                (Some(other), None) => Err(anyhow!("download: Invalid target '{}'", other)),
+                (_, Some(_)) => Err(anyhow!("download: Too many arguments")),
+            },
             Some("where") => match tokens.next() {
                 Some("this") => Ok(Self::WhereIsThisSong),
                 Some(other) => Err(anyhow!("where: Invalid argument '{}'", other)),
@@ -117,5 +127,14 @@ mod tests {
             Command::parse("unlike").unwrap(),
             Command::SetCurrentSongLiked(Some(false))
         ));
+    }
+
+    #[test]
+    fn parses_download_commands_strictly() {
+        assert!(matches!(Command::parse("download song").unwrap(), Command::DownloadSong));
+        assert!(matches!(Command::parse("download playlist").unwrap(), Command::DownloadPlaylist));
+        assert!(Command::parse("download").is_err());
+        assert!(Command::parse("download album").is_err());
+        assert!(Command::parse("download song extra").is_err());
     }
 }

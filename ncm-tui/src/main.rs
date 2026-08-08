@@ -29,6 +29,7 @@ lazy_static! {
         path_config.login_cookie.clone(),
         path_config.lyrics.clone(),
         path_config.settings.clone(),
+        path_config.downloads.clone(),
     )));
     static ref player: Arc<Mutex<Player>> = Arc::new(Mutex::new(Player::new()));
     static ref command_queue: Arc<Mutex<VecDeque<Command>>> = Arc::new(Mutex::new(VecDeque::new()));
