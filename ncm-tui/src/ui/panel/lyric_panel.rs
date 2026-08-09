@@ -166,38 +166,58 @@ impl<'a> Controller for LyricPanel<'a> {
     fn draw(&self, frame: &mut Frame, chunk: Rect) {
         let mut song_lyric_list_state = self.song_lyric_list_state.clone();
 
-        // 歌词居中
-        self.correct_offset_to_make_lyric_centered(&mut song_lyric_list_state, chunk.height as usize);
+        // 歌词居中（与 playlist 的 centered_offset 行为一致：中间段居中，首句顶格、末句沉底）
+        if let Some(selected) = song_lyric_list_state.selected() {
+            if selected < self.song_lyric_list_items.len() {
+                let visible_lines = chunk.height.saturating_sub(2) as usize; // 上下边框
+                let heights: Vec<usize> = self.song_lyric_list_items.iter().map(ListItem::height).collect();
+                *song_lyric_list_state.offset_mut() = lyric_centered_offset(&heights, selected, visible_lines);
+            }
+        }
 
         frame.render_stateful_widget(&self.song_lyric_list, chunk, &mut song_lyric_list_state);
     }
 }
 
-impl<'a> LyricPanel<'a> {
-    #[inline]
-    /// 修正 offset 以使歌词居中
-    fn correct_offset_to_make_lyric_centered(&self, lyric_list_state: &mut ListState, available_line_count: usize) {
-        if self.song_lyric_list_items.len() > 1 {
-            let current_index = lyric_list_state.selected().unwrap_or(0);
-            // 一句歌词所占行数（带翻译的歌词会占多行）
-            let lyric_line_count = self.song_lyric_list_items.get(current_index).unwrap().height();
-            let half_line_count = available_line_count / lyric_line_count / 2;
-            let near_top_line = 0 + half_line_count;
-            let near_bottom_line = if self.song_lyric_list_items.len() - 1 >= 2 * half_line_count {
-                self.song_lyric_list_items.len() - 1 - half_line_count
-            } else {
-                half_line_count
-            };
-            // 修正 offset
-            if current_index >= near_top_line {
-                if current_index >= near_bottom_line {
-                    // 接近底部时取消滚动，不居中
-                    *lyric_list_state.offset_mut() = near_bottom_line - half_line_count;
-                } else {
-                    // 动态居中
-                    *lyric_list_state.offset_mut() = current_index - half_line_count;
-                }
-            }
-        }
+/// 按行高精确计算使选中歌词居中的 offset（item 单位），语义同 playlist 的
+/// `centered_offset`：中间段居中，接近首尾时取消居中（首句顶格、末句沉底）。
+/// 歌词 item 高度不等（带翻译占 2 行），需按行高累加而非按 item 数估算。
+fn lyric_centered_offset(heights: &[usize], selected: usize, visible_lines: usize) -> usize {
+    // 居中：从选中项向前累加行高，直至达到选中项上方应有的行数
+    let target_above = visible_lines.saturating_sub(heights[selected]) / 2;
+    let mut offset = selected;
+    let mut acc = 0;
+    while offset > 0 && acc + heights[offset - 1] <= target_above {
+        offset -= 1;
+        acc += heights[offset];
+    }
+    // 结尾 clamp：从末项向前累加，剩余内容不足一屏时不再向下滚动
+    let mut max_offset = heights.len();
+    let mut tail = 0;
+    while max_offset > 0 && tail + heights[max_offset - 1] <= visible_lines {
+        max_offset -= 1;
+        tail += heights[max_offset];
+    }
+    offset.min(max_offset)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lyric_centered_offset;
+
+    #[test]
+    fn centers_selection_except_near_boundaries() {
+        // 等高（均无翻译）时与 playlist 的 centered_offset 结果一致
+        let h = vec![1; 20];
+        assert_eq!(lyric_centered_offset(&h, 2, 7), 0);
+        assert_eq!(lyric_centered_offset(&h, 10, 7), 7);
+        assert_eq!(lyric_centered_offset(&h, 18, 7), 13);
+        assert_eq!(lyric_centered_offset(&h, 3, 7), 0);
+        // 混合高度（偶数项带翻译占 2 行）：居中与结尾 clamp 仍按行高精确计算
+        let h: Vec<usize> = (0..20).map(|i| if i % 2 == 0 { 2 } else { 1 }).collect();
+        assert_eq!(lyric_centered_offset(&h, 10, 7), 9);
+        assert_eq!(lyric_centered_offset(&h, 18, 7), 15);
+        assert_eq!(lyric_centered_offset(&h, 19, 7), 15);
+        assert_eq!(lyric_centered_offset(&h, 1, 7), 0);
     }
 }
