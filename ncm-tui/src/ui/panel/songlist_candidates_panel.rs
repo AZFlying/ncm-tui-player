@@ -1,6 +1,6 @@
 use crate::config::style::*;
 use crate::config::Command;
-use crate::ui::panel::PanelFocusedStatus;
+use crate::ui::panel::{centered_offset, PanelFocusedStatus};
 use crate::ui::Controller;
 use crate::{ncm_client, player};
 use ncm_api::model::Songlist;
@@ -159,6 +159,11 @@ impl<'a> Controller for SonglistsPanel<'a> {
 
     fn draw(&self, frame: &mut Frame, chunk: Rect) {
         let mut songlists_table_state = self.songlists_table_state.clone();
+        if let Some(selected) = songlists_table_state.selected() {
+            let visible_rows = chunk.height.saturating_sub(3) as usize; // 上下边框和表头
+            *songlists_table_state.offset_mut() =
+                centered_offset(selected, self.songlists_table_rows.len(), visible_rows);
+        }
         frame.render_stateful_widget(&self.songlists_table, chunk, &mut songlists_table_state);
 
         // 渲染 scrollbar

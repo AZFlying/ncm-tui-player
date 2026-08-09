@@ -1,7 +1,7 @@
 use crate::config::style::*;
 use crate::config::Command;
 use crate::ncm_client;
-use crate::ui::panel::PanelFocusedStatus;
+use crate::ui::panel::{centered_offset, PanelFocusedStatus};
 use crate::ui::Controller;
 use chrono::NaiveDate;
 use ratatui::layout::{Margin, Rect};
@@ -136,6 +136,11 @@ impl<'a> Controller for DailyListsPanel<'a> {
 
     fn draw(&self, frame: &mut Frame, chunk: Rect) {
         let mut dates_table_state = self.dates_table_state.clone();
+        if let Some(selected) = dates_table_state.selected() {
+            let visible_rows = chunk.height.saturating_sub(3) as usize; // 上下边框和表头
+            *dates_table_state.offset_mut() =
+                centered_offset(selected, self.dates_table_rows.len(), visible_rows);
+        }
         frame.render_stateful_widget(&self.dates_table, chunk, &mut dates_table_state);
 
         // 渲染 scrollbar
