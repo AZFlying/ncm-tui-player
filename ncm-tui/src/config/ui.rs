@@ -10,6 +10,7 @@ pub enum AppMode {
 pub enum ScreenEnum {
     Main,
     Songlists,
+    Daily,
     Login,
     Help,
     Launch,

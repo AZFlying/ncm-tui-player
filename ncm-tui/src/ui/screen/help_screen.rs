@@ -72,8 +72,8 @@ impl<'a> HelpScreen<'a> {
             Search Forward:                         {}\n\
             Search Backward:                        {}",
             "q / quit / exit",
-            "screen 0 / 1",
-            "screen help / main",
+            "screen 0 / 1 / 2 / 3",
+            "screen help / main / playlists",
             "h / help",
             "l / login",
             "logout",

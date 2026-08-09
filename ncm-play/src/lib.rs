@@ -198,6 +198,17 @@ impl Player {
         }
     }
 
+    /// 切换到游离歌单（如日推，不在用户歌单列表中），songs 需已加载
+    pub fn switch_to_songlist(&mut self, songlist: Songlist) {
+        debug!("{:?}", songlist);
+
+        self.current_playlist_name = songlist.name.clone();
+        self.current_playlist_id = None; // 游离歌单无服务端 id，置 None 以跳过 scrobble
+        self.current_playlist = songlist.songs;
+        self.play_index_history_stack = Vec::new();
+        self.current_song_index = if self.current_playlist.is_empty() { None } else { Some(0) };
+    }
+
     /// 向后搜索歌单（向上方搜索）
     pub fn search_backward_playlist(&mut self, start_index: usize, keywords: Vec<String>) -> Option<usize> {
         if start_index < self.current_playlist.len() {

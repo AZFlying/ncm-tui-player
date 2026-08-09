@@ -6,7 +6,7 @@ use crate::model::{Account, FromJson, LyricLine, Lyrics, Song, Songlist};
 use crate::responses::login::*;
 use crate::settings::{Settings, DOWNLOAD_QUALITIES};
 use anyhow::{anyhow, Result};
-use chrono::Utc;
+use chrono::{Local, NaiveDate, NaiveTime, Utc};
 use log::{debug, error};
 use regex::Regex;
 use reqwest::{Client, ClientBuilder};
@@ -23,6 +23,7 @@ pub struct NcmClient {
     api_program_path: PathBuf,
     cookie_path: PathBuf,
     lyrics_path: PathBuf,
+    daily_recommend_path: PathBuf,
     settings_path: PathBuf,
     default_download_path: PathBuf,
 
@@ -53,6 +54,7 @@ impl NcmClient {
         api_program_path: PathBuf,
         cookie_path: PathBuf,
         lyrics_path: PathBuf,
+        daily_recommend_path: PathBuf,
         settings_path: PathBuf,
         default_download_path: PathBuf,
     ) -> Self {
@@ -60,6 +62,7 @@ impl NcmClient {
             api_program_path,
             cookie_path,
             lyrics_path,
+            daily_recommend_path,
             settings_path,
             default_download_path,
             api_child_process: None,
@@ -682,6 +685,46 @@ impl NcmClient {
         downloaded_song_ids_in(&self.settings.download_path)
     }
 
+    /// 日推窗口内的日期（当日 6 点生成，6 点前窗口整体后移一天）
+    pub fn daily_recommend_window(&self) -> Vec<NaiveDate> {
+        daily_recommend_window_at(Local::now())
+    }
+
+    /// 获取某日每日推荐歌曲（优先读本地缓存；某日推生成后不再变化，缓存按日期永久有效）
+    pub async fn get_daily_recommend_songs(&self, date: NaiveDate) -> Result<Vec<Song>> {
+        let cache_file = self.daily_recommend_path.join(format!("{}.json", date.format("%Y-%m-%d")));
+
+        if let Ok(mut cache) = File::open(&cache_file) {
+            let mut json = String::new();
+            cache.read_to_string(&mut json)?;
+            return Ok(serde_json::from_str(&json)?);
+        }
+
+        let latest = self.daily_recommend_window()[0];
+        let songs = if date == latest {
+            request_daily_recommend_songs(&self.http_client, &self.api_url, &self.cookie, &self.liked_song_ids).await?
+        } else {
+            request_history_daily_recommend_songs(&self.http_client, &self.api_url, &self.cookie, &self.liked_song_ids, date).await?
+        };
+
+        // 缓存写入失败不影响本次返回
+        match serde_json::to_string(&songs) {
+            Ok(json) => {
+                if let Err(err) = fs::write(&cache_file, json) {
+                    error!("failed to store daily recommend cache {:?}: {:?}", cache_file, err);
+                }
+            },
+            Err(err) => error!("failed to serialize daily recommend songs: {:?}", err),
+        }
+
+        Ok(songs)
+    }
+
+    /// 删除窗口外的日推缓存文件
+    pub fn purge_daily_recommend_cache(&self) {
+        purge_daily_recommend_cache(&self.daily_recommend_path, &self.daily_recommend_window());
+    }
+
     /// 获取歌曲的歌词
     pub async fn get_song_lyrics(&self, song_id: u64) -> Result<Lyrics> {
         // 优先尝试从本地缓存读取歌词
@@ -750,6 +793,90 @@ impl NcmClient {
     }
 }
 
+/// 日推窗口天数
+const DAILY_RECOMMEND_DAYS: i64 = 14;
+
+/// 计算日推窗口：当日日推 6 点生成，6 点前窗口整体后移一天
+fn daily_recommend_window_at(now: chrono::DateTime<Local>) -> Vec<NaiveDate> {
+    let six_am = NaiveTime::from_hms_opt(6, 0, 0).unwrap();
+    let today = now.date_naive();
+    let latest = if now.time() < six_am { today - chrono::Duration::days(1) } else { today };
+    (0..DAILY_RECOMMEND_DAYS).map(|i| latest - chrono::Duration::days(i)).collect()
+}
+
+/// 删除窗口外日期的日推缓存文件
+fn purge_daily_recommend_cache(dir: &Path, window: &[NaiveDate]) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let expired = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| NaiveDate::parse_from_str(stem, "%Y-%m-%d").ok())
+                .is_some_and(|date| !window.contains(&date));
+            if expired {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+}
+
+/// 请求当日每日推荐歌曲
+async fn request_daily_recommend_songs(client: &Client, api_url: &str, cookie: &str, liked_song_ids: &HashSet<u64>) -> Result<Vec<Song>> {
+    let response = client
+        .post(format!("{}/recommend/songs", api_url))
+        .form(&[("cookie", cookie)])
+        .send()
+        .await?
+        .error_for_status()?;
+    let value: Value = serde_json::from_slice(&response.bytes().await?)?;
+    if value["code"].as_u64() != Some(200) {
+        return Err(anyhow!("failed to load daily recommend songs, code {:?}", value["code"]));
+    }
+    let tracks = value["data"]["dailySongs"].as_array().ok_or_else(|| anyhow!("daily recommend response contains no songs"))?;
+    Ok(tracks.iter().filter_map(|track| parse_track(track, liked_song_ids)).collect())
+}
+
+/// 请求历史某日每日推荐歌曲
+async fn request_history_daily_recommend_songs(client: &Client, api_url: &str, cookie: &str, liked_song_ids: &HashSet<u64>, date: NaiveDate) -> Result<Vec<Song>> {
+    let response = client
+        .post(format!("{}/history/recommend/songs/detail?date={}", api_url, date.format("%Y-%m-%d")))
+        .form(&[("cookie", cookie)])
+        .send()
+        .await?
+        .error_for_status()?;
+    let value: Value = serde_json::from_slice(&response.bytes().await?)?;
+    if value["code"].as_u64() != Some(200) {
+        return Err(anyhow!("failed to load history daily recommend songs, code {:?}", value["code"]));
+    }
+    // 该接口响应结构未文档化，兼容 data 直接为歌曲数组与 data.songs 两种形态
+    let tracks = value["data"]
+        .as_array()
+        .or_else(|| value["data"]["songs"].as_array())
+        .ok_or_else(|| {
+            let raw = value.to_string();
+            anyhow!("history daily recommend response contains no songs: {:.200}", raw)
+        })?;
+    Ok(tracks.iter().filter_map(|track| parse_track(track, liked_song_ids)).collect())
+}
+
+/// 解析服务端 track JSON 为 Song（无 id 的曲目返回 None）
+fn parse_track(track: &Value, liked_song_ids: &HashSet<u64>) -> Option<Song> {
+    let id = track["id"].as_u64()?;
+    Some(Song {
+        name: track["name"].as_str().unwrap_or("Unknown").to_string(),
+        id,
+        singer: track["ar"][0]["name"].as_str().unwrap_or("Unknown").to_string(),
+        singer_id: track["ar"][0]["id"].as_u64().unwrap_or(0),
+        album: track["al"]["name"].as_str().unwrap_or("Unknown").to_string(),
+        album_id: track["al"]["id"].as_u64().unwrap_or(0),
+        duration: track["dt"].as_u64().unwrap_or(0),
+        song_url: None,
+        quality_level: String::new(),
+        liked: liked_song_ids.contains(&id),
+    })
+}
+
 async fn request_songlist_songs(client: &Client, api_url: &str, cookie: &str, liked_song_ids: &HashSet<u64>, songlist_id: u64) -> Result<Vec<Song>> {
     let mut result = Vec::new();
     let mut offset = 0;
@@ -771,19 +898,7 @@ async fn request_songlist_songs(client: &Client, api_url: &str, cookie: &str, li
         }
 
         for track in tracks {
-            let id = track["id"].as_u64().ok_or_else(|| anyhow!("songlist {} contains a song without id", songlist_id))?;
-            result.push(Song {
-                name: track["name"].as_str().unwrap_or("Unknown").to_string(),
-                id,
-                singer: track["ar"][0]["name"].as_str().unwrap_or("Unknown").to_string(),
-                singer_id: track["ar"][0]["id"].as_u64().unwrap_or(0),
-                album: track["al"]["name"].as_str().unwrap_or("Unknown").to_string(),
-                album_id: track["al"]["id"].as_u64().unwrap_or(0),
-                duration: track["dt"].as_u64().unwrap_or(0),
-                song_url: None,
-                quality_level: String::new(),
-                liked: liked_song_ids.contains(&id),
-            });
+            result.push(parse_track(track, liked_song_ids).ok_or_else(|| anyhow!("songlist {} contains a song without id", songlist_id))?);
         }
         if tracks.len() < 1000 {
             break;
@@ -1028,6 +1143,7 @@ fn encode_lyrics(origin_lyric_lines: Vec<String>, origin_trans_lyric_lines: Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     fn test_dir() -> PathBuf {
@@ -1110,7 +1226,7 @@ mod tests {
         let settings_path = dir.join("settings.json");
         let downloads = dir.join("downloads");
         fs::write(&settings_path, r#"{"use_remote_api":false,"remote_api_url":"https://example.com/"}"#).unwrap();
-        let mut client = NcmClient::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), settings_path.clone(), downloads.clone());
+        let mut client = NcmClient::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), PathBuf::new(), settings_path.clone(), downloads.clone());
 
         client.init();
 
@@ -1126,11 +1242,44 @@ mod tests {
         let dir = test_dir();
         let existing = dir.join("song-a-x-lossless-42.flac");
         File::create(&existing).unwrap();
-        let mut client = NcmClient::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), PathBuf::new(), dir.clone());
+        let mut client = NcmClient::new(PathBuf::new(), PathBuf::new(), PathBuf::new(), PathBuf::new(), PathBuf::new(), dir.clone());
         client.settings.download_path = dir.clone();
         client.settings.download_quality = String::from("lossless");
 
         assert_eq!(client.download_song(song(42)).await.unwrap(), DownloadResult::AlreadyExists(existing));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn daily_window_starts_today_after_6am() {
+        let now = Local.with_ymd_and_hms(2025, 1, 15, 6, 0, 0).unwrap();
+        let window = daily_recommend_window_at(now);
+        assert_eq!(window.len(), 14);
+        assert_eq!(window[0], NaiveDate::from_ymd_opt(2025, 1, 15).unwrap());
+        assert_eq!(window[13], NaiveDate::from_ymd_opt(2025, 1, 2).unwrap());
+    }
+
+    #[test]
+    fn daily_window_shifts_back_before_6am() {
+        let now = Local.with_ymd_and_hms(2025, 1, 15, 5, 59, 59).unwrap();
+        let window = daily_recommend_window_at(now);
+        assert_eq!(window.len(), 14);
+        assert_eq!(window[0], NaiveDate::from_ymd_opt(2025, 1, 14).unwrap());
+    }
+
+    #[test]
+    fn purge_removes_only_files_outside_window() {
+        let dir = test_dir();
+        let window = daily_recommend_window_at(Local.with_ymd_and_hms(2025, 1, 15, 12, 0, 0).unwrap());
+        File::create(dir.join("2025-01-15.json")).unwrap();
+        File::create(dir.join("2025-01-01.json")).unwrap();
+        File::create(dir.join("not-a-date.json")).unwrap();
+
+        purge_daily_recommend_cache(&dir, &window);
+
+        assert!(dir.join("2025-01-15.json").exists());
+        assert!(!dir.join("2025-01-01.json").exists());
+        assert!(dir.join("not-a-date.json").exists());
         fs::remove_dir_all(dir).unwrap();
     }
 }
