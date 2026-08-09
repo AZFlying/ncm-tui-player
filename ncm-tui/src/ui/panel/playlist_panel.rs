@@ -1,6 +1,6 @@
 use crate::config::style::*;
 use crate::config::Command;
-use crate::ui::panel::PanelFocusedStatus;
+use crate::ui::panel::{centered_offset, PanelFocusedStatus};
 use crate::ui::Controller;
 use crate::{ncm_client, player};
 use ncm_api::model::Song;
@@ -219,23 +219,3 @@ impl<'a> Controller for PlaylistPanel<'a> {
     }
 }
 
-fn centered_offset(selected: usize, row_count: usize, visible_row_count: usize) -> usize {
-    selected
-        .saturating_sub(visible_row_count / 2)
-        .min(row_count.saturating_sub(visible_row_count))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::centered_offset;
-
-    #[test]
-    fn centers_selection_except_near_boundaries() {
-        assert_eq!(centered_offset(2, 20, 7), 0);
-        assert_eq!(centered_offset(10, 20, 7), 7);
-        assert_eq!(centered_offset(18, 20, 7), 13);
-        assert_eq!(centered_offset(3, 5, 7), 0);
-        assert_eq!(centered_offset(10, 20, 9), 6);
-        assert_eq!(centered_offset(5, 20, 8), 1);
-    }
-}
