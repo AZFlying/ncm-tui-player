@@ -15,6 +15,7 @@ pub struct Path {
     pub settings: PathBuf,
     pub login_cookie: PathBuf,
     pub lyrics: PathBuf,
+    pub daily_recommend: PathBuf,
     pub downloads: PathBuf,
 }
 
@@ -46,6 +47,11 @@ impl Path {
             fs::create_dir_all(&lyrics).expect("Couldn't create lyrics dir.");
         }
 
+        let daily_recommend = cache.clone().join("daily_recommend");
+        if !daily_recommend.exists() {
+            fs::create_dir_all(&daily_recommend).expect("Couldn't create daily recommend dir.");
+        }
+
         let downloads = data.clone().join("downloads");
 
         Self {
@@ -56,6 +62,7 @@ impl Path {
             settings,
             login_cookie,
             lyrics,
+            daily_recommend,
             downloads,
         }
     }

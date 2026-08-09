@@ -46,6 +46,7 @@ pub struct App<'a> {
     // view
     main_screen: MainScreen<'a>,
     songlists_screen: SonglistsScreen<'a>,
+    daily_screen: DailyScreen<'a>,
     login_screen: LoginScreen<'a>,
     help_screen: HelpScreen<'a>,
     command_line: CommandLine<'a>,
@@ -69,6 +70,7 @@ impl<'a> App<'a> {
             completion: None,
             main_screen: MainScreen::new(&normal_style),
             songlists_screen: SonglistsScreen::new(&normal_style),
+            daily_screen: DailyScreen::new(&normal_style),
             login_screen: LoginScreen::new(&normal_style),
             help_screen: HelpScreen::new(&normal_style),
             command_line: CommandLine::new(),
@@ -174,6 +176,7 @@ impl<'a> App<'a> {
             ScreenEnum::Login => self.update_login_model().await?,
             ScreenEnum::Main => self.main_screen.update_model().await?,
             ScreenEnum::Songlists => self.songlists_screen.update_model().await?,
+            ScreenEnum::Daily => self.daily_screen.update_model().await?,
             _ => false,
         };
 
@@ -375,6 +378,7 @@ impl<'a> App<'a> {
                     let song = match self.current_screen {
                         ScreenEnum::Main => self.main_screen.selected_song(),
                         ScreenEnum::Songlists => self.songlists_screen.selected_song(),
+                        ScreenEnum::Daily => self.daily_screen.selected_song(),
                         _ => None,
                     };
                     if let Some(song) = song {
@@ -404,6 +408,13 @@ impl<'a> App<'a> {
                         } else {
                             self.command_line.set_content("当前没有已选择的歌单");
                         }
+                    },
+                    ScreenEnum::Daily => match self.daily_screen.selected_songlist() {
+                        Some(songlist) if !songlist.songs.is_empty() => {
+                            self.command_line.set_content(format!("已开始下载歌单《{}》", songlist.name).as_str());
+                            actions::download_playlist(songlist.name.clone(), songlist.songs.clone());
+                        },
+                        _ => self.command_line.set_content("请先在日推屏加载要下载的日推"),
                     },
                     _ => self.command_line.set_content("当前界面不支持下载歌单"),
                 },
@@ -477,7 +488,7 @@ impl<'a> App<'a> {
                             self.switch_to_command_line_mode();
                             self.command_line.set_content("playlist create ");
                         },
-                        ScreenEnum::Main => {
+                        ScreenEnum::Main | ScreenEnum::Daily => {
                             self.switch_to_command_line_mode();
                             self.command_line.set_content("collect ");
                             self.refresh_completion().await;
@@ -519,6 +530,7 @@ impl<'a> App<'a> {
                 self.need_re_update_view = match self.current_screen {
                     ScreenEnum::Main => self.main_screen.handle_event(cmd).await?,
                     ScreenEnum::Songlists => self.songlists_screen.handle_event(cmd).await?,
+                    ScreenEnum::Daily => self.daily_screen.handle_event(cmd).await?,
                     ScreenEnum::Login => self.login_screen.handle_event(cmd).await?,
                     ScreenEnum::Help => self.help_screen.handle_event(cmd).await?,
                     _ => false,
@@ -537,6 +549,7 @@ impl<'a> App<'a> {
                 ScreenEnum::Login => self.login_screen.update_view(&self.normal_style),
                 ScreenEnum::Main => self.main_screen.update_view(&self.normal_style),
                 ScreenEnum::Songlists => self.songlists_screen.update_view(&self.normal_style),
+                ScreenEnum::Daily => self.daily_screen.update_view(&self.normal_style),
                 _ => {},
             }
         }
@@ -570,6 +583,7 @@ impl<'a> App<'a> {
                 ScreenEnum::Login => self.login_screen.draw(frame, chunks[0]),
                 ScreenEnum::Main => self.main_screen.draw(frame, chunks[0]),
                 ScreenEnum::Songlists => self.songlists_screen.draw(frame, chunks[0]),
+                ScreenEnum::Daily => self.daily_screen.draw(frame, chunks[0]),
                 _ => {},
             }
 
@@ -625,6 +639,7 @@ impl<'a> App<'a> {
             KeyCode::Char('h') => Command::PrevPanel,
             KeyCode::Char('1') => Command::GotoScreen(ScreenEnum::Main),
             KeyCode::Char('2') => Command::GotoScreen(ScreenEnum::Songlists),
+            KeyCode::Char('3') => Command::GotoScreen(ScreenEnum::Daily),
             KeyCode::Char('0') => Command::GotoScreen(ScreenEnum::Help),
             KeyCode::F(1) => Command::GotoScreen(ScreenEnum::Help),
             KeyCode::Char('.') | KeyCode::Char('。') => Command::NextSong,
@@ -823,6 +838,9 @@ impl<'a> App<'a> {
             },
             ScreenEnum::Songlists => {
                 self.songlists_screen = SonglistsScreen::new(&self.normal_style);
+            },
+            ScreenEnum::Daily => {
+                self.daily_screen = DailyScreen::new(&self.normal_style);
             },
             _ => {},
         }

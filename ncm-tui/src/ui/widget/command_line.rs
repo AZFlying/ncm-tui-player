@@ -16,6 +16,13 @@ const NORMAL_TEXT: &str = " NORMAL ";
 const COMMAND_TEXT: &str = " COMMAND ";
 const SEARCH_TEXT: &str = " SEARCH ";
 
+const TAB_TITLES: [&str; 5] = ["1.播放", "2.歌单", "3.日推", "0.help", "登录"];
+
+/// tabs 区域宽度：各标题宽度和 + 分隔符
+fn tabs_width() -> u16 {
+    TAB_TITLES.iter().map(|t| UnicodeWidthStr::width(*t) as u16).sum::<u16>() + TAB_TITLES.len() as u16 - 1
+}
+
 pub struct CommandLine<'a> {
     //
     show_cursor: bool,
@@ -40,7 +47,7 @@ impl<'a> CommandLine<'a> {
             mode_label: Line::default(),
             colon_line: Line::default(),
             interactive_area: TextArea::default(),
-            tabs: Tabs::new(vec!["1.播放", "2.歌单", "0.help", "登录"])
+            tabs: Tabs::new(Vec::from(TAB_TITLES))
                 .highlight_style(ITEM_SELECTED_STYLE)
                 .padding("", "")
                 .select(0)
@@ -106,8 +113,9 @@ impl<'a> Controller for CommandLine<'a> {
             Command::GotoScreen(to_screen) => match to_screen {
                 ScreenEnum::Main => self.tabs.to_owned().select(0),
                 ScreenEnum::Songlists => self.tabs.to_owned().select(1),
-                ScreenEnum::Help => self.tabs.to_owned().select(2),
-                ScreenEnum::Login => self.tabs.to_owned().select(3),
+                ScreenEnum::Daily => self.tabs.to_owned().select(2),
+                ScreenEnum::Help => self.tabs.to_owned().select(3),
+                ScreenEnum::Login => self.tabs.to_owned().select(4),
                 _ => self.tabs.to_owned().select(None),
             },
             _ => self.tabs.to_owned(),
@@ -145,7 +153,7 @@ impl<'a> Controller for CommandLine<'a> {
                 Constraint::Length(UnicodeWidthStr::width(self.current_mode.as_str()) as u16),
                 Constraint::Max(UnicodeWidthStr::width(if self.show_colon { ": " } else { "" }) as u16),
                 Constraint::Fill(1),
-                Constraint::Max(25),
+                Constraint::Max(tabs_width()),
             ])
             .split(chunk);
 

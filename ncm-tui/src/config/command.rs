@@ -66,6 +66,7 @@ impl Command {
             Some("screen") => match tokens.next() {
                 Some("1" | "main") => Ok(Self::GotoScreen(ScreenEnum::Main)),
                 Some("2" | "playlist" | "playlists") => Ok(Self::GotoScreen(ScreenEnum::Songlists)),
+                Some("3") => Ok(Self::GotoScreen(ScreenEnum::Daily)),
                 Some("0" | "help") => Ok(Self::GotoScreen(ScreenEnum::Help)),
                 Some(other) => Err(anyhow!("screen: Invalid screen identifier: {}", other)),
                 None => Err(anyhow!("screen: Missing argument SCREEN_ID")),
@@ -173,6 +174,12 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use super::Command;
+    use crate::config::ScreenEnum;
+
+    #[test]
+    fn parses_screen_3() {
+        assert!(matches!(Command::parse("screen 3").unwrap(), Command::GotoScreen(ScreenEnum::Daily)));
+    }
 
     #[test]
     fn parses_like_commands() {

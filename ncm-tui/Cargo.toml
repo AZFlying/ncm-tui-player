@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.93"
 
+chrono = "0.4.39"
+
 crossterm = { version = "0.28.1", features = ["serde"] }
 
 dirs-next = "2.0.0"

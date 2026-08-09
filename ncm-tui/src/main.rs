@@ -28,6 +28,7 @@ lazy_static! {
         path_config.api_program.clone(),
         path_config.login_cookie.clone(),
         path_config.lyrics.clone(),
+        path_config.daily_recommend.clone(),
         path_config.settings.clone(),
         path_config.downloads.clone(),
     )));

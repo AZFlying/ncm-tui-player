@@ -1,7 +1,9 @@
+mod daily_lists_panel;
 mod lyric_panel;
 mod playlist_panel;
 mod songlist_candidates_panel;
 
+pub use daily_lists_panel::*;
 pub use lyric_panel::*;
 pub use playlist_panel::*;
 pub use songlist_candidates_panel::*;
