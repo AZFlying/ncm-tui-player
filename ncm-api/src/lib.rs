@@ -717,7 +717,11 @@ impl NcmClient {
         if let Ok(mut cache) = File::open(&cache_file) {
             let mut json = String::new();
             cache.read_to_string(&mut json)?;
-            return Ok(serde_json::from_str(&json)?);
+            let songs: Vec<Song> = serde_json::from_str(&json)?;
+            // 空列表视为未命中（历史上可能缓存过接口限制导致的空结果），转由在线拉取自愈
+            if !songs.is_empty() {
+                return Ok(songs);
+            }
         }
 
         let latest = self.daily_recommend_window()[0];
@@ -877,6 +881,10 @@ async fn request_history_daily_recommend_songs(client: &Client, api_url: &str, c
             let raw = value.to_string();
             anyhow!("history daily recommend response contains no songs: {:.200}", raw)
         })?;
+    // 空列表是当天未生成日推记录的信号，该日期无法回溯
+    if tracks.is_empty() {
+        return Err(anyhow!("历史记录无缓存"));
+    }
     Ok(tracks.iter().filter_map(|track| parse_track(track, liked_song_ids)).collect())
 }
 
