@@ -67,10 +67,11 @@ impl<'a> HelpScreen<'a> {
             Jump To Current Song In Playlist:       {}\n\
             Jump To Top:                            {}\n\
             Jump To Bottom:                         {}\n\
-            Collect Current Song To Songlist:       {} (候选列表自动展开)\n\
-            Uncollect Current Song From Songlist:   {} (候选列表自动展开)\n\
+            Collect Cursor Song To Songlist:        {} (候选列表自动展开)\n\
+            Uncollect Cursor Song From Songlist:    {} (候选列表自动展开)\n\
             Create Songlist:                        {}\n\
             Delete Songlist:                        {} (候选列表自动展开)\n\
+            Remove Cursor Song From Playlist:       {}\n\
             Search Forward:                         {}\n\
             Search Backward:                        {}",
             "q / quit / exit",
@@ -101,6 +102,7 @@ impl<'a> HelpScreen<'a> {
             "uncollect <歌单名>",
             "playlist create <名称>",
             "playlist delete <名称>",
+            "remove",
             "/ xxx",
             "? xxx",
         ));

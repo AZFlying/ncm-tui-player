@@ -36,7 +36,7 @@ struct CompletionState {
 /// 待确认操作，按 y 执行、其余任意键取消
 enum PendingConfirm {
     DeleteSonglist { id: u64, name: String },
-    RemoveSong { songlist_id: u64, song_id: u64 },
+    RemoveSong { songlist_id: u64, song_id: u64, song_name: String },
 }
 
 pub struct App<'a> {
@@ -498,8 +498,14 @@ impl<'a> App<'a> {
                     }
                 },
                 Command::RemoveSongFromSonglist { songlist_id, songlist_name, song_id, song_name } => {
-                    self.pending_confirm = Some(PendingConfirm::RemoveSong { songlist_id, song_id });
+                    self.pending_confirm = Some(PendingConfirm::RemoveSong { songlist_id, song_id, song_name: song_name.clone() });
                     self.command_line.set_content(format!("从《{}》移除《{}》？[y/N]", songlist_name, song_name).as_str());
+                },
+                Command::RemoveFromCurrentPlaylist => {
+                    self.request_remove_cursor_song().await;
+                },
+                Command::Delete if self.current_screen == ScreenEnum::Main => {
+                    self.request_remove_cursor_song().await;
                 },
                 Command::NewOrCollect => {
                     match self.current_screen {
@@ -731,21 +737,24 @@ impl<'a> App<'a> {
         self.command_line.set_to_search_mode();
     }
 
-    /// 收藏/取消收藏当前播放歌曲到指定歌单
+    /// 收藏/取消收藏光标所在歌曲到指定歌单
     async fn update_song_collection(&mut self, name: String, add: bool) {
-        let (song, target) = {
+        let song = match self.current_screen {
+            ScreenEnum::Main => self.main_screen.selected_song(),
+            ScreenEnum::Songlists => self.songlists_screen.selected_song(),
+            _ => None,
+        };
+        let target = {
             let player_guard = player.lock().await;
-            let song = player_guard.active_song();
-            let target = player_guard
+            player_guard
                 .songlists()
                 .iter()
                 .find(|sl| sl.name == name && !sl.subscribed && sl.special_type != 5)
-                .cloned();
-            (song, target)
+                .cloned()
         };
 
         let Some(song) = song else {
-            self.command_line.set_content("当前没有正在播放或暂停的歌曲");
+            self.command_line.set_content("当前界面没有已选择的歌曲");
             return;
         };
         let Some(songlist) = target else {
@@ -778,6 +787,34 @@ impl<'a> App<'a> {
         }
     }
 
+    /// 请求从当前播放列表移除光标歌曲（进入确认流）
+    async fn request_remove_cursor_song(&mut self) {
+        let Some(song) = self.main_screen.selected_song() else {
+            self.command_line.set_content("当前没有已选择的歌曲");
+            return;
+        };
+        let songlist = {
+            let player_guard = player.lock().await;
+            match player_guard.current_playlist_id() {
+                Some(playlist_id) => player_guard.songlists().iter().find(|sl| sl.id == playlist_id).cloned(),
+                None => None,
+            }
+        };
+        match songlist {
+            Some(sl) if sl.subscribed => self.command_line.set_content("不能从收藏的歌单移除歌曲"),
+            Some(sl) if sl.special_type == 5 => self.command_line.set_content("不能从「我喜欢的音乐」移除歌曲"),
+            Some(sl) => {
+                command_queue.lock().await.push_back(Command::RemoveSongFromSonglist {
+                    songlist_id: sl.id,
+                    songlist_name: sl.name,
+                    song_id: song.id,
+                    song_name: song.name,
+                });
+            },
+            None => self.command_line.set_content("当前播放列表不支持移除歌曲"),
+        }
+    }
+
     /// 执行已确认的操作
     async fn execute_confirmed(&mut self) {
         match self.pending_confirm.take() {
@@ -795,15 +832,22 @@ impl<'a> App<'a> {
                     Err(err) => self.command_line.set_content(err.to_string().as_str()),
                 }
             },
-            Some(PendingConfirm::RemoveSong { songlist_id, song_id }) => {
+            Some(PendingConfirm::RemoveSong { songlist_id, song_id, song_name }) => {
                 let result = {
                     let ncm_client_guard = ncm_client.lock().await;
                     ncm_client_guard.update_songlist_tracks(false, songlist_id, song_id).await
                 };
                 match result {
                     Ok(()) => {
-                        // 远程成功，转发给歌单屏执行本地移除
+                        // 同步歌单计数
+                        let mut player_guard = player.lock().await;
+                        if let Some(sl) = player_guard.songlists_mut().iter_mut().find(|sl| sl.id == songlist_id) {
+                            sl.songs_count = sl.songs_count.saturating_sub(1);
+                        }
+                        drop(player_guard);
+                        // 远程成功，转发给屏幕执行本地移除
                         command_queue.lock().await.push_back(Command::SongRemovalDone { songlist_id, song_id });
+                        self.command_line.set_content(format!("已从歌单移除：《{}》", song_name).as_str());
                     },
                     Err(err) => self.command_line.set_content(err.to_string().as_str()),
                 }

@@ -120,6 +120,22 @@ impl Player {
         &self.current_playlist
     }
 
+    pub fn current_playlist_id(&self) -> Option<u64> {
+        self.current_playlist_id
+    }
+
+    /// 从当前播放列表移除歌曲并修正 current_song_index，返回是否移除成功
+    pub fn remove_from_current_playlist(&mut self, song_id: u64) -> bool {
+        let Some(pos) = self.current_playlist.iter().position(|song| song.id == song_id) else {
+            return false;
+        };
+        self.current_playlist.remove(pos);
+        if let Some(index) = self.current_song_index {
+            self.current_song_index = adjusted_index_after_removal(self.current_playlist.len(), index, pos);
+        }
+        true
+    }
+
     pub fn current_song(&self) -> &Option<Song> {
         &self.current_song
     }
@@ -524,14 +540,44 @@ fn completed_scrobble(song: Option<(u64, u64)>, source_id: Option<u64>) -> Optio
     (seconds > 0).then_some((song_id, source_id, seconds))
 }
 
+/// 从播放列表移除位置 removed_pos 的歌曲后，修正当前播放索引
+/// len_after 为移除后的列表长度
+fn adjusted_index_after_removal(len_after: usize, index: usize, removed_pos: usize) -> Option<usize> {
+    if len_after == 0 {
+        None
+    } else if removed_pos < index {
+        Some(index - 1)
+    } else if removed_pos == index {
+        // 移除的是正在播放的歌曲：回退一格（第 0 首则回退到末尾，
+        // 借 ListRepeat 的环绕逻辑），下次切歌落到顺延上来的歌曲
+        Some(if index == 0 { len_after - 1 } else { index - 1 })
+    } else {
+        Some(index)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::completed_scrobble;
+    use super::{adjusted_index_after_removal, completed_scrobble};
 
     #[test]
     fn builds_scrobble_only_with_song_and_source() {
         assert_eq!(completed_scrobble(Some((1, 291_999)), Some(2)), Some((1, 2, 291)));
         assert_eq!(completed_scrobble(Some((1, 291_999)), None), None);
         assert_eq!(completed_scrobble(Some((1, 999)), Some(2)), None);
+    }
+
+    #[test]
+    fn adjusts_index_after_removal() {
+        // 移除光标前的歌曲：索引 -1
+        assert_eq!(adjusted_index_after_removal(4, 3, 1), Some(2));
+        // 移除光标后的歌曲：索引不变
+        assert_eq!(adjusted_index_after_removal(4, 1, 3), Some(1));
+        // 移除正在播放的歌曲：回退一格，下次切歌落到顺延上来的歌曲
+        assert_eq!(adjusted_index_after_removal(4, 2, 2), Some(1));
+        // 移除第 0 首（正在播放）：回退到末尾，借环绕逻辑落到新的第 0 首
+        assert_eq!(adjusted_index_after_removal(4, 0, 0), Some(3));
+        // 列表清空
+        assert_eq!(adjusted_index_after_removal(0, 0, 0), None);
     }
 }
