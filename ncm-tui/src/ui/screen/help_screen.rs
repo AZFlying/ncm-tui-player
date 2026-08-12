@@ -23,6 +23,7 @@ impl<'a> HelpScreen<'a> {
             Previous Panel:                         {}\n\
             Next Panel:                             {}\n\
             Go To Main Screen:                      {}\n\
+            Go To Settings Screen:                  {}\n\
             Go To Help Screen (Here):               {}\n\
             Play Next Song:                         {}\n\
             Play Previous Song:                     {}\n\
@@ -34,7 +35,7 @@ impl<'a> HelpScreen<'a> {
             New Songlist (Songlists) / Collect (Main): {}\n\
             Delete Songlist / Remove Song:          {}\n\
             Quit:                                   {}",
-            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "q",
+            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "9", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "q",
         ));
         let normal_mode_help_page = Paragraph::new(normal_mode_help_text)
             .block(Block::default().title("普通模式").borders(Borders::ALL))
@@ -45,6 +46,7 @@ impl<'a> HelpScreen<'a> {
             Quit:                                   {}\n\
             Switch Screen:                          {}\n\
             |_                                      {}\n\
+            Go To Settings Screen:                  {}\n\
             Go To Help Screen (Here):               {}\n\
             Go To Login Screen:                     {}\n\
             Logout:                                 {}\n\
@@ -72,8 +74,9 @@ impl<'a> HelpScreen<'a> {
             Search Forward:                         {}\n\
             Search Backward:                        {}",
             "q / quit / exit",
-            "screen 0 / 1 / 2 / 3",
+            "screen 0 / 1 / 2 / 3 / 9",
             "screen help / main / playlists",
+            "screen settings",
             "h / help",
             "l / login",
             "logout",

@@ -71,7 +71,7 @@
   - [ ] MPRIS (Linux)
   - [ ] SMTC (Windows)
 - [ ] 自定义Style
-- [ ] 设置页面
+- [x] 设置页面（按 `9` 或 `screen 9` 进入，可修改 API 模式 / 播放音质 / 下载配置，立即生效）
 - [ ] 用户数据缓存
 - [ ] 打包分发
   - [x] Linux (rpm)
@@ -90,6 +90,8 @@
   - 本地无需安装大量依赖，节省空间，快捷部署
   - 依赖程序部署在服务器，本项目提供了默认的公开服务器，但访问速度较慢（性能较弱）（**如果您有空闲服务器，也欢迎提供**）
   - 如果使用第三方部署的 remote api ，可能存在安全隐患
+
+两种模式的切换（`use_remote_api` / `remote_api_url`）可在设置界面（按 `9`）修改，立即生效。
 
 ### 对于 local api 模式
 
@@ -169,7 +171,7 @@ Gstreamer 的安装与 `local api` 模式下相同。
 
 歌单界面快捷键：左侧面板按 `n` 新建歌单、按 `d` 删除高亮歌单（收藏的歌单不可删除）；右侧歌曲列表按 `d` 从当前浏览的歌单移除高亮歌曲。主界面按 `n` 会预填 `collect ` 命令并展开候选列表，可快速收藏当前播放歌曲。以上操作均只对自建歌单生效，且「我喜欢的音乐」歌单不参与收藏 / 移除。
 
-下载配置位于应用数据目录的 `settings.json`（Linux 默认为 `~/.local/share/ncm-tui-player/settings.json`）。首次启动后可修改：
+下载配置位于配置目录的 `settings.json`（Linux 默认为 `~/.config/ncm-tui-player/settings.json`，旧版本数据目录下的文件会在启动时自动迁移过去）。推荐按 `9` 打开设置界面直接修改（立即生效），也可手动编辑后重启：
 
 ```json
 {
@@ -181,7 +183,7 @@ Gstreamer 的安装与 `local api` 模式下相同。
 }
 ```
 
-`download_path` 建议使用绝对路径，修改后重启生效。`download_quality` 支持：`standard`、`higher`、`exhigh`、`lossless`、`hires`、`jyeffect`、`sky`、`dolby`、`jymaster`，该字段只控制下载音质。在线播放音质由 `play_quality` 控制，支持同一组取值，默认 `hires`（部分音质需要黑胶 VIP，否则会按账号权限回落）。修改后重启生效。
+`download_path` 建议使用绝对路径。`download_quality` 支持：`standard`、`higher`、`exhigh`、`lossless`、`hires`、`jyeffect`、`sky`、`dolby`、`jymaster`，该字段只控制下载音质。在线播放音质由 `play_quality` 控制，支持同一组取值，默认 `hires`（部分音质需要黑胶 VIP，否则会按账号权限回落）。
 
 `download_file_name_pattern` 控制下载文件命名，可用占位符：`{name}`（曲名）、`{singer}`（作者）、`{album}`（专辑）、`{quality}`（请求音质）、`{id}`（歌曲 ID）。为保证本地优先播放与重复下载检测正常工作，命名中需保留 `{id}`（置于开头或结尾）与 `{quality}`（两侧以 `-` 分隔）。
 

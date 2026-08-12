@@ -1,6 +1,6 @@
 pub mod model;
 mod responses;
-mod settings;
+pub mod settings;
 
 use crate::model::{Account, FromJson, LyricLine, Lyrics, Song, Songlist};
 use crate::responses::login::*;
@@ -78,6 +78,29 @@ impl NcmClient {
     /// 初始化，尝试读取本地设置文件
     pub fn init(&mut self) {
         self.settings = self.read_settings();
+        self.normalize_settings();
+
+        // 更新（应对本地无设置文件或Settings数据结构更新的情况）
+        self.store_settings();
+    }
+
+    /// 获取当前设置（副本）
+    pub fn settings(&self) -> Settings {
+        self.settings.clone()
+    }
+
+    /// 更新设置：兜底补全并写盘，返回 API 相关字段是否变化（变化需重跑 check_api）
+    pub fn update_settings(&mut self, new: Settings) -> bool {
+        let api_changed =
+            self.settings.use_remote_api != new.use_remote_api || self.settings.remote_api_url != new.remote_api_url;
+        self.settings = new;
+        self.normalize_settings();
+        self.store_settings();
+        api_changed
+    }
+
+    /// 设置项为空时填回默认值，并确保下载目录存在
+    fn normalize_settings(&mut self) {
         if self.settings.download_path.as_os_str().is_empty() {
             self.settings.download_path = self.default_download_path.clone();
         }
@@ -90,9 +113,6 @@ impl NcmClient {
         if let Err(err) = fs::create_dir_all(&self.settings.download_path) {
             error!("failed to create download dir {:?}: {}", self.settings.download_path, err);
         }
-
-        // 更新（应对本地无设置文件或Settings数据结构更新的情况）
-        self.store_settings();
     }
 
     /// 读取设置（读不到则返回默认设置）

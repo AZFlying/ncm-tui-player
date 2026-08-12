@@ -45,6 +45,7 @@ pub struct App<'a> {
 
     // view
     main_screen: MainScreen<'a>,
+    settings_screen: SettingsScreen<'a>,
     songlists_screen: SonglistsScreen<'a>,
     daily_screen: DailyScreen<'a>,
     login_screen: LoginScreen<'a>,
@@ -69,6 +70,7 @@ impl<'a> App<'a> {
             pending_delete_songlist: None,
             completion: None,
             main_screen: MainScreen::new(&normal_style),
+            settings_screen: SettingsScreen::new(&normal_style),
             songlists_screen: SonglistsScreen::new(&normal_style),
             daily_screen: DailyScreen::new(&normal_style),
             login_screen: LoginScreen::new(&normal_style),
@@ -175,6 +177,7 @@ impl<'a> App<'a> {
             ScreenEnum::Help => false,
             ScreenEnum::Login => self.update_login_model().await?,
             ScreenEnum::Main => self.main_screen.update_model().await?,
+            ScreenEnum::Settings => self.settings_screen.update_model().await?,
             ScreenEnum::Songlists => self.songlists_screen.update_model().await?,
             ScreenEnum::Daily => self.daily_screen.update_model().await?,
             _ => false,
@@ -204,7 +207,13 @@ impl<'a> App<'a> {
                 match (&self.current_mode, key_event.code) {
                     // Normal 模式
                     (AppMode::Normal, _) => {
-                        self.get_command_from_key(key_event.modifiers, key_event.code).await;
+                        // 设置屏编辑态：原始按键直接交给设置屏的输入框
+                        if self.current_screen == ScreenEnum::Settings && self.settings_screen.is_editing() {
+                            self.settings_screen.input(key_event).await;
+                            self.need_re_update_view = true;
+                        } else {
+                            self.get_command_from_key(key_event.modifiers, key_event.code).await;
+                        }
                     },
 
                     // Search 模式
@@ -529,6 +538,7 @@ impl<'a> App<'a> {
                 // 若写成 self.need_re_update_view = self.need_re_update_view || match ... {} ，match块内的方法可能不被执行
                 self.need_re_update_view = match self.current_screen {
                     ScreenEnum::Main => self.main_screen.handle_event(cmd).await?,
+                    ScreenEnum::Settings => self.settings_screen.handle_event(cmd).await?,
                     ScreenEnum::Songlists => self.songlists_screen.handle_event(cmd).await?,
                     ScreenEnum::Daily => self.daily_screen.handle_event(cmd).await?,
                     ScreenEnum::Login => self.login_screen.handle_event(cmd).await?,
@@ -548,6 +558,7 @@ impl<'a> App<'a> {
                 ScreenEnum::Help => {},
                 ScreenEnum::Login => self.login_screen.update_view(&self.normal_style),
                 ScreenEnum::Main => self.main_screen.update_view(&self.normal_style),
+                ScreenEnum::Settings => self.settings_screen.update_view(&self.normal_style),
                 ScreenEnum::Songlists => self.songlists_screen.update_view(&self.normal_style),
                 ScreenEnum::Daily => self.daily_screen.update_view(&self.normal_style),
                 _ => {},
@@ -582,6 +593,7 @@ impl<'a> App<'a> {
                 ScreenEnum::Help => self.help_screen.draw(frame, chunks[0]),
                 ScreenEnum::Login => self.login_screen.draw(frame, chunks[0]),
                 ScreenEnum::Main => self.main_screen.draw(frame, chunks[0]),
+                ScreenEnum::Settings => self.settings_screen.draw(frame, chunks[0]),
                 ScreenEnum::Songlists => self.songlists_screen.draw(frame, chunks[0]),
                 ScreenEnum::Daily => self.daily_screen.draw(frame, chunks[0]),
                 _ => {},
@@ -640,6 +652,7 @@ impl<'a> App<'a> {
             KeyCode::Char('1') => Command::GotoScreen(ScreenEnum::Main),
             KeyCode::Char('2') => Command::GotoScreen(ScreenEnum::Songlists),
             KeyCode::Char('3') => Command::GotoScreen(ScreenEnum::Daily),
+            KeyCode::Char('9') => Command::GotoScreen(ScreenEnum::Settings),
             KeyCode::Char('0') => Command::GotoScreen(ScreenEnum::Help),
             KeyCode::F(1) => Command::GotoScreen(ScreenEnum::Help),
             KeyCode::Char('.') | KeyCode::Char('。') => Command::NextSong,
