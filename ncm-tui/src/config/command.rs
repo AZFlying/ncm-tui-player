@@ -48,6 +48,10 @@ pub enum Command {
     NewOrCollect,
     /// 删除/移除（快捷键路径，由歌单屏按焦点解释：左侧=删歌单，右侧=移除光标歌曲）
     Delete,
+    /// 请求从歌单移除歌曲（App 二次确认后执行）
+    RemoveSongFromSonglist { songlist_id: u64, songlist_name: String, song_id: u64, song_name: String },
+    /// 移除歌曲已确认并远程成功，通知界面执行本地移除
+    SongRemovalDone { songlist_id: u64, song_id: u64 },
     WhereIsThisSong,
     /// 播放自动切歌后同步 playlist 光标（不改变面板焦点）
     SyncPlaylistCursor,
