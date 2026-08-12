@@ -211,11 +211,10 @@ impl<'a> Controller for SonglistsScreen<'a> {
                     }
                 }
             },
-            // 移除歌曲已远程成功，本地同步界面
+            // 移除歌曲已远程成功，本地同步界面（计数与提示由 App 层统一处理）
             (SongRemovalDone { songlist_id, song_id }, _) => {
                 if let Some(songlist) = self.current_selected_songlist.clone() {
                     if songlist.id == songlist_id {
-                        let song_name = songlist.songs.iter().find(|s| s.id == song_id).map(|s| s.name.clone()).unwrap_or_default();
                         // 本地移除该歌曲并刷新右侧面板，避免服务端缓存导致的刷新滞后
                         let mut songlist = songlist;
                         songlist.songs.retain(|s| s.id != song_id);
@@ -224,14 +223,7 @@ impl<'a> Controller for SonglistsScreen<'a> {
                         self.songlist_content_panel.set_model(&songlist.name, &songlist.songs, &downloaded_song_ids);
                         self.current_selected_songlist = Some(songlist);
 
-                        // 同步左侧歌单计数
-                        let mut player_guard = player.lock().await;
-                        if let Some(sl) = player_guard.songlists_mut().iter_mut().find(|sl| sl.id == songlist_id) {
-                            sl.songs_count = sl.songs_count.saturating_sub(1);
-                        }
-                        drop(player_guard);
                         command_queue.lock().await.push_back(RefreshPlaylist);
-                        command_queue.lock().await.push_back(ShowMessage(format!("已从歌单移除：《{}》", song_name)));
                     }
                 }
             },

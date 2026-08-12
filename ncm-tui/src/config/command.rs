@@ -52,6 +52,8 @@ pub enum Command {
     RemoveSongFromSonglist { songlist_id: u64, songlist_name: String, song_id: u64, song_name: String },
     /// 移除歌曲已确认并远程成功，通知界面执行本地移除
     SongRemovalDone { songlist_id: u64, song_id: u64 },
+    /// 从当前播放列表移除光标歌曲（需二次确认）
+    RemoveFromCurrentPlaylist,
     WhereIsThisSong,
     /// 播放自动切歌后同步 playlist 光标（不改变面板焦点）
     SyncPlaylistCursor,
@@ -103,6 +105,10 @@ impl Command {
             Some("like") => Ok(Self::SetCurrentSongLiked(Some(true))),
             Some("unlike") => Ok(Self::SetCurrentSongLiked(Some(false))),
             Some("start") => Ok(Self::StartPlay),
+            Some("remove") => match tokens.next() {
+                None => Ok(Self::RemoveFromCurrentPlaylist),
+                Some(_) => Err(anyhow!("remove: Too many arguments")),
+            },
             Some("download") => match (tokens.next(), tokens.next()) {
                 (Some("song"), None) => Ok(Self::DownloadSong),
                 (Some("playlist"), None) => Ok(Self::DownloadPlaylist),
@@ -240,5 +246,11 @@ mod tests {
         assert!(Command::parse("playlist").is_err());
         assert!(Command::parse("playlist create").is_err());
         assert!(Command::parse("playlist rename x").is_err());
+    }
+
+    #[test]
+    fn parses_remove_command_strictly() {
+        assert!(matches!(Command::parse("remove").unwrap(), Command::RemoveFromCurrentPlaylist));
+        assert!(Command::parse("remove extra").is_err());
     }
 }

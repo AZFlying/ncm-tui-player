@@ -1,4 +1,5 @@
 use crate::config::Command;
+use crate::player;
 use crate::ui::panel::{LyricPanel, PanelFocusedStatus, PlaylistPanel};
 use crate::ui::Controller;
 use anyhow::Result;
@@ -136,6 +137,16 @@ impl<'a> Controller for MainScreen<'a> {
             //
             (RefreshPlaylist, _) => {
                 self.playlist_panel.handle_event(cmd).await?;
+            },
+            // 歌曲已从远程歌单移除：若移除的是当前播放列表，本地同步并修正光标
+            (SongRemovalDone { songlist_id, song_id }, _) => {
+                let mut player_guard = player.lock().await;
+                if player_guard.current_playlist_id() == Some(songlist_id) {
+                    player_guard.remove_from_current_playlist(song_id);
+                    drop(player_guard);
+                    self.playlist_panel.handle_event(Command::RefreshPlaylist).await?;
+                    self.playlist_panel.handle_event(Command::SyncPlaylistCursor).await?;
+                }
             },
             //
             (_, _) => return Ok(false),
