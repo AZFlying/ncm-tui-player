@@ -196,41 +196,42 @@ impl<'a> Controller for SonglistsScreen<'a> {
                     }
                 }
             },
-            // 从当前浏览的歌单移除光标所在歌曲
+            // 从当前浏览的歌单移除光标所在歌曲（进入 App 确认流）
             (Delete, SonglistContentInside) => {
                 if let Some(songlist) = self.current_selected_songlist.clone() {
                     if songlist.subscribed || songlist.special_type == 5 {
                         command_queue.lock().await.push_back(ShowMessage("只能对自建歌单移除歌曲".to_string()));
                     } else if let Some(song) = self.songlist_content_panel.get_selected_song() {
-                        let result = {
-                            let ncm_client_guard = ncm_client.lock().await;
-                            ncm_client_guard.update_songlist_tracks(false, songlist.id, song.id).await
-                        };
-                        match result {
-                            Ok(()) => {
-                                let message = format!("已从《{}》移除：《{}》", songlist.name, song.name);
-                                let songlist_id = songlist.id;
-                                // 本地移除该歌曲并刷新右侧面板，避免服务端缓存导致的刷新滞后
-                                let mut songlist = songlist;
-                                songlist.songs.retain(|s| s.id != song.id);
-                                songlist.songs_count = songlist.songs_count.saturating_sub(1);
-                                let downloaded_song_ids = ncm_client.lock().await.downloaded_song_ids();
-                                self.songlist_content_panel.set_model(&songlist.name, &songlist.songs, &downloaded_song_ids);
-                                self.current_selected_songlist = Some(songlist);
+                        command_queue.lock().await.push_back(RemoveSongFromSonglist {
+                            songlist_id: songlist.id,
+                            songlist_name: songlist.name,
+                            song_id: song.id,
+                            song_name: song.name,
+                        });
+                    }
+                }
+            },
+            // 移除歌曲已远程成功，本地同步界面
+            (SongRemovalDone { songlist_id, song_id }, _) => {
+                if let Some(songlist) = self.current_selected_songlist.clone() {
+                    if songlist.id == songlist_id {
+                        let song_name = songlist.songs.iter().find(|s| s.id == song_id).map(|s| s.name.clone()).unwrap_or_default();
+                        // 本地移除该歌曲并刷新右侧面板，避免服务端缓存导致的刷新滞后
+                        let mut songlist = songlist;
+                        songlist.songs.retain(|s| s.id != song_id);
+                        songlist.songs_count = songlist.songs_count.saturating_sub(1);
+                        let downloaded_song_ids = ncm_client.lock().await.downloaded_song_ids();
+                        self.songlist_content_panel.set_model(&songlist.name, &songlist.songs, &downloaded_song_ids);
+                        self.current_selected_songlist = Some(songlist);
 
-                                // 同步左侧歌单计数
-                                let mut player_guard = player.lock().await;
-                                if let Some(sl) = player_guard.songlists_mut().iter_mut().find(|sl| sl.id == songlist_id) {
-                                    sl.songs_count = sl.songs_count.saturating_sub(1);
-                                }
-                                drop(player_guard);
-                                command_queue.lock().await.push_back(RefreshPlaylist);
-                                command_queue.lock().await.push_back(ShowMessage(message));
-                            },
-                            Err(err) => {
-                                command_queue.lock().await.push_back(ShowMessage(err.to_string()));
-                            },
+                        // 同步左侧歌单计数
+                        let mut player_guard = player.lock().await;
+                        if let Some(sl) = player_guard.songlists_mut().iter_mut().find(|sl| sl.id == songlist_id) {
+                            sl.songs_count = sl.songs_count.saturating_sub(1);
                         }
+                        drop(player_guard);
+                        command_queue.lock().await.push_back(RefreshPlaylist);
+                        command_queue.lock().await.push_back(ShowMessage(format!("已从歌单移除：《{}》", song_name)));
                     }
                 }
             },
