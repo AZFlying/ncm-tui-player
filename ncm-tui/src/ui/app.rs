@@ -737,21 +737,24 @@ impl<'a> App<'a> {
         self.command_line.set_to_search_mode();
     }
 
-    /// 收藏/取消收藏当前播放歌曲到指定歌单
+    /// 收藏/取消收藏光标所在歌曲到指定歌单
     async fn update_song_collection(&mut self, name: String, add: bool) {
-        let (song, target) = {
+        let song = match self.current_screen {
+            ScreenEnum::Main => self.main_screen.selected_song(),
+            ScreenEnum::Songlists => self.songlists_screen.selected_song(),
+            _ => None,
+        };
+        let target = {
             let player_guard = player.lock().await;
-            let song = player_guard.active_song();
-            let target = player_guard
+            player_guard
                 .songlists()
                 .iter()
                 .find(|sl| sl.name == name && !sl.subscribed && sl.special_type != 5)
-                .cloned();
-            (song, target)
+                .cloned()
         };
 
         let Some(song) = song else {
-            self.command_line.set_content("当前没有正在播放或暂停的歌曲");
+            self.command_line.set_content("当前界面没有已选择的歌曲");
             return;
         };
         let Some(songlist) = target else {

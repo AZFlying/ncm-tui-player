@@ -67,8 +67,8 @@ impl<'a> HelpScreen<'a> {
             Jump To Current Song In Playlist:       {}\n\
             Jump To Top:                            {}\n\
             Jump To Bottom:                         {}\n\
-            Collect Current Song To Songlist:       {} (候选列表自动展开)\n\
-            Uncollect Current Song From Songlist:   {} (候选列表自动展开)\n\
+            Collect Cursor Song To Songlist:        {} (候选列表自动展开)\n\
+            Uncollect Cursor Song From Songlist:    {} (候选列表自动展开)\n\
             Create Songlist:                        {}\n\
             Delete Songlist:                        {} (候选列表自动展开)\n\
             Remove Cursor Song From Playlist:       {}\n\
