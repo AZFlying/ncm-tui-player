@@ -38,7 +38,17 @@ impl Path {
 
         let api_program = data.clone().join("neteasecloudmusicapi");
 
-        let settings = data.clone().join("settings.json");
+        // settings.json 位于 config 目录；旧位置（data 目录）文件自动迁移
+        let settings = config.clone().join("settings.json");
+        let old_settings = data.clone().join("settings.json");
+        if !settings.exists() && old_settings.exists() {
+            let migrated = fs::rename(&old_settings, &settings).is_ok()
+                // 跨文件系统等 rename 失败时退化为 copy + 删除
+                || (fs::copy(&old_settings, &settings).is_ok() && fs::remove_file(&old_settings).is_ok());
+            if !migrated {
+                eprintln!("warning: failed to migrate settings.json to {:?}, starting with defaults", settings);
+            }
+        }
 
         let login_cookie = data.clone().join("cookies");
 

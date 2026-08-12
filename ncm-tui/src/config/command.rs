@@ -67,6 +67,7 @@ impl Command {
                 Some("1" | "main") => Ok(Self::GotoScreen(ScreenEnum::Main)),
                 Some("2" | "playlist" | "playlists") => Ok(Self::GotoScreen(ScreenEnum::Songlists)),
                 Some("3") => Ok(Self::GotoScreen(ScreenEnum::Daily)),
+                Some("9" | "settings") => Ok(Self::GotoScreen(ScreenEnum::Settings)),
                 Some("0" | "help") => Ok(Self::GotoScreen(ScreenEnum::Help)),
                 Some(other) => Err(anyhow!("screen: Invalid screen identifier: {}", other)),
                 None => Err(anyhow!("screen: Missing argument SCREEN_ID")),
@@ -179,6 +180,12 @@ mod tests {
     #[test]
     fn parses_screen_3() {
         assert!(matches!(Command::parse("screen 3").unwrap(), Command::GotoScreen(ScreenEnum::Daily)));
+    }
+
+    #[test]
+    fn parses_screen_9() {
+        assert!(matches!(Command::parse("screen 9").unwrap(), Command::GotoScreen(ScreenEnum::Settings)));
+        assert!(matches!(Command::parse("screen settings").unwrap(), Command::GotoScreen(ScreenEnum::Settings)));
     }
 
     #[test]

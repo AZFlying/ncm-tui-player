@@ -16,7 +16,7 @@ const NORMAL_TEXT: &str = " NORMAL ";
 const COMMAND_TEXT: &str = " COMMAND ";
 const SEARCH_TEXT: &str = " SEARCH ";
 
-const TAB_TITLES: [&str; 5] = ["1.播放", "2.歌单", "3.日推", "0.help", "登录"];
+const TAB_TITLES: [&str; 6] = ["1.播放", "2.歌单", "3.日推", "9.设置", "0.help", "登录"];
 
 /// tabs 区域宽度：各标题宽度和 + 分隔符
 fn tabs_width() -> u16 {
@@ -114,8 +114,9 @@ impl<'a> Controller for CommandLine<'a> {
                 ScreenEnum::Main => self.tabs.to_owned().select(0),
                 ScreenEnum::Songlists => self.tabs.to_owned().select(1),
                 ScreenEnum::Daily => self.tabs.to_owned().select(2),
-                ScreenEnum::Help => self.tabs.to_owned().select(3),
-                ScreenEnum::Login => self.tabs.to_owned().select(4),
+                ScreenEnum::Settings => self.tabs.to_owned().select(3),
+                ScreenEnum::Help => self.tabs.to_owned().select(4),
+                ScreenEnum::Login => self.tabs.to_owned().select(5),
                 _ => self.tabs.to_owned().select(None),
             },
             _ => self.tabs.to_owned(),

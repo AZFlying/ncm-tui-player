@@ -11,6 +11,7 @@ pub enum ScreenEnum {
     Main,
     Songlists,
     Daily,
+    Settings,
     Login,
     Help,
     Launch,
