@@ -17,7 +17,8 @@ pub enum Command {
     StartPlay,
     NextSong,
     PrevSong,
-    SetCurrentSongLiked(Option<bool>),
+    /// 喜欢/取消喜欢光标所在歌曲，None 为切换
+    SetSongLiked(Option<bool>),
     SearchForward(Vec<String>),
     SearchBackward(Vec<String>),
     RefreshPlaylist,
@@ -102,8 +103,8 @@ impl Command {
             },
             Some("next") => Ok(Self::NextSong),
             Some("prev" | "previous") => Ok(Self::PrevSong),
-            Some("like") => Ok(Self::SetCurrentSongLiked(Some(true))),
-            Some("unlike") => Ok(Self::SetCurrentSongLiked(Some(false))),
+            Some("like") => Ok(Self::SetSongLiked(Some(true))),
+            Some("unlike") => Ok(Self::SetSongLiked(Some(false))),
             Some("start") => Ok(Self::StartPlay),
             Some("remove") => match tokens.next() {
                 None => Ok(Self::RemoveFromCurrentPlaylist),
@@ -202,11 +203,11 @@ mod tests {
     fn parses_like_commands() {
         assert!(matches!(
             Command::parse("like").unwrap(),
-            Command::SetCurrentSongLiked(Some(true))
+            Command::SetSongLiked(Some(true))
         ));
         assert!(matches!(
             Command::parse("unlike").unwrap(),
-            Command::SetCurrentSongLiked(Some(false))
+            Command::SetSongLiked(Some(false))
         ));
     }
 

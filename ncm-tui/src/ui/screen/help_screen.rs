@@ -19,7 +19,7 @@ impl<'a> HelpScreen<'a> {
             Up:                                     {}\n\
             Down:                                   {}\n\
             Play/Pause:                             {}\n\
-            Toggle Like Current Song:               {}\n\
+            Toggle Like Cursor Song:                {}\n\
             Previous Panel:                         {}\n\
             Next Panel:                             {}\n\
             Go To Main Screen:                      {}\n\
@@ -59,8 +59,8 @@ impl<'a> HelpScreen<'a> {
             |_ shuffle mode:                        {}\n\
             Play Next Song:                         {}\n\
             Play Previous Song:                     {}\n\
-            Like Current Song:                      {}\n\
-            Unlike Current Song:                    {}\n\
+            Like Cursor Song:                       {}\n\
+            Unlike Cursor Song:                     {}\n\
             Start Auto Play:                        {} (Only under `list repeat mode` or `shuffle mode`)\n\
             Download Selected Song:                 {}\n\
             Download Selected Playlist:             {}\n\

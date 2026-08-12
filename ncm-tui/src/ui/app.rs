@@ -366,8 +366,12 @@ impl<'a> App<'a> {
                         command_queue.lock().await.push_back(Command::SyncPlaylistCursor);
                     }
                 },
-                Command::SetCurrentSongLiked(requested) => {
-                    let song = player.lock().await.active_song();
+                Command::SetSongLiked(requested) => {
+                    let song = match self.current_screen {
+                        ScreenEnum::Main => self.main_screen.selected_song(),
+                        ScreenEnum::Songlists => self.songlists_screen.selected_song(),
+                        _ => None,
+                    };
                     if let Some(song) = song {
                         let (like, result) = {
                             let mut ncm_client_guard = ncm_client.lock().await;
@@ -386,7 +390,7 @@ impl<'a> App<'a> {
                             Err(err) => self.command_line.set_content(err.to_string().as_str()),
                         }
                     } else {
-                        self.command_line.set_content("当前没有正在播放或暂停的歌曲");
+                        self.command_line.set_content("当前界面没有已选择的歌曲");
                     }
                 },
                 Command::DownloadSong => {
@@ -663,7 +667,7 @@ impl<'a> App<'a> {
             },
             KeyCode::Esc => Command::Esc,
             KeyCode::Right => Command::NextPanel,
-            KeyCode::Char('l') => Command::SetCurrentSongLiked(None),
+            KeyCode::Char('l') => Command::SetSongLiked(None),
             KeyCode::Left => Command::PrevPanel,
             KeyCode::Char('h') => Command::PrevPanel,
             KeyCode::Char('1') => Command::GotoScreen(ScreenEnum::Main),
