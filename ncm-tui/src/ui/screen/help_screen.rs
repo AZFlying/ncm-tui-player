@@ -1,15 +1,27 @@
+use crate::config::style::PANEL_SELECTED_BORDER_STYLE;
 use crate::config::Command;
 use crate::ui::Controller;
 use anyhow::Result;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
+#[derive(Debug, PartialEq)]
+enum HelpPanel {
+    Normal,
+    CommandLine,
+}
+
 pub struct HelpScreen<'a> {
+    // model
+    focus: HelpPanel,
+    normal_scroll: u16,
+    cmdline_scroll: u16,
     // view
-    normal_mode_help_page: Paragraph<'a>,
-    commandline_mode_help_page: Paragraph<'a>,
+    normal_style: Style,
+    normal_mode_help_text: Text<'a>,
+    commandline_mode_help_text: Text<'a>,
 }
 
 impl<'a> HelpScreen<'a> {
@@ -40,9 +52,6 @@ impl<'a> HelpScreen<'a> {
             Quit:                                   {}",
             "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "9", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "c", "p", "Shift+J/K 或 Shift+↓/↑", "q",
         ));
-        let normal_mode_help_page = Paragraph::new(normal_mode_help_text)
-            .block(Block::default().title("普通模式").borders(Borders::ALL))
-            .style(*normal_style);
 
         let commandline_mode_help_text = Text::from(format!(
             "\
@@ -109,13 +118,14 @@ impl<'a> HelpScreen<'a> {
             "/ xxx",
             "? xxx",
         ));
-        let commandline_mode_help_page = Paragraph::new(commandline_mode_help_text)
-            .block(Block::default().title("命令行模式").borders(Borders::ALL))
-            .style(*normal_style);
 
         Self {
-            normal_mode_help_page,
-            commandline_mode_help_page,
+            focus: HelpPanel::Normal,
+            normal_scroll: 0,
+            cmdline_scroll: 0,
+            normal_style: *normal_style,
+            normal_mode_help_text,
+            commandline_mode_help_text,
         }
     }
 }
@@ -125,8 +135,25 @@ impl<'a> Controller for HelpScreen<'a> {
         Ok(false)
     }
 
-    async fn handle_event(&mut self, _cmd: Command) -> Result<bool> {
-        Ok(false)
+    async fn handle_event(&mut self, cmd: Command) -> Result<bool> {
+        match cmd {
+            Command::Up => match self.focus {
+                HelpPanel::Normal => self.normal_scroll = self.normal_scroll.saturating_sub(1),
+                HelpPanel::CommandLine => self.cmdline_scroll = self.cmdline_scroll.saturating_sub(1),
+            },
+            Command::Down => match self.focus {
+                HelpPanel::Normal => self.normal_scroll += 1,
+                HelpPanel::CommandLine => self.cmdline_scroll += 1,
+            },
+            Command::PrevPanel | Command::NextPanel => {
+                self.focus = match self.focus {
+                    HelpPanel::Normal => HelpPanel::CommandLine,
+                    HelpPanel::CommandLine => HelpPanel::Normal,
+                };
+            },
+            _ => return Ok(false),
+        }
+        Ok(true)
     }
 
     fn update_view(&mut self, _style: &Style) {}
@@ -137,8 +164,63 @@ impl<'a> Controller for HelpScreen<'a> {
             .constraints([Constraint::Percentage(35), Constraint::Percentage(65)].as_ref())
             .split(chunk);
 
-        frame.render_widget(&self.normal_mode_help_page, chunks[0]);
+        let panels = [
+            (&self.normal_mode_help_text, "普通模式", self.normal_scroll, self.focus == HelpPanel::Normal, chunks[0]),
+            (&self.commandline_mode_help_text, "命令行模式", self.cmdline_scroll, self.focus == HelpPanel::CommandLine, chunks[1]),
+        ];
 
-        frame.render_widget(&self.commandline_mode_help_page, chunks[1]);
+        for (text, title, scroll, focused, area) in panels {
+            let mut block = Block::default()
+                .title(title)
+                .title_bottom(Line::from("j/k 滚动 · ←/→ 切换面板").centered())
+                .borders(Borders::ALL);
+            if focused {
+                block = block.border_style(PANEL_SELECTED_BORDER_STYLE);
+            }
+
+            let inner_height = block.inner(area).height as usize;
+            let max_scroll = text.lines.len().saturating_sub(inner_height);
+            let offset = scroll.min(max_scroll as u16);
+
+            let page = Paragraph::new(text.clone())
+                .block(block)
+                .style(self.normal_style)
+                .scroll((offset, 0));
+            frame.render_widget(page, area);
+
+            if max_scroll > 0 {
+                let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+                let mut scrollbar_state = ScrollbarState::new(max_scroll).position(offset as usize);
+                frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn scroll_overshoot_does_not_panic_and_focus_toggles() {
+        let mut screen = HelpScreen::new(&Style::default());
+        assert_eq!(screen.focus, HelpPanel::Normal);
+
+        // 超发 Down / Up 不 panic，offset 不 underflow
+        for _ in 0..100 {
+            screen.handle_event(Command::Down).await.unwrap();
+        }
+        for _ in 0..200 {
+            screen.handle_event(Command::Up).await.unwrap();
+        }
+        assert_eq!(screen.normal_scroll, 0);
+
+        // 焦点往返切换
+        screen.handle_event(Command::NextPanel).await.unwrap();
+        assert_eq!(screen.focus, HelpPanel::CommandLine);
+        screen.handle_event(Command::Down).await.unwrap();
+        assert_eq!(screen.cmdline_scroll, 1);
+        screen.handle_event(Command::PrevPanel).await.unwrap();
+        assert_eq!(screen.focus, HelpPanel::Normal);
     }
 }
