@@ -45,6 +45,10 @@ pub struct Settings {
     pub play_quality: String,
     pub download_file_name_pattern: String,
     pub download_lyric_name_pattern: String,
+    /// 置顶的自建歌单 id（顺序即置顶顺序）
+    pub pinned_created_songlists: Vec<u64>,
+    /// 置顶的收藏歌单 id（顺序即置顶顺序）
+    pub pinned_subscribed_songlists: Vec<u64>,
 }
 
 impl Default for Settings {
@@ -57,6 +61,8 @@ impl Default for Settings {
             play_quality: String::from("hires"),
             download_file_name_pattern: String::from("{name}-{singer}-{album}-{quality}-{id}"),
             download_lyric_name_pattern: String::from("{name}-Lyric"),
+            pinned_created_songlists: Vec::new(),
+            pinned_subscribed_songlists: Vec::new(),
         }
     }
 }
@@ -77,6 +83,8 @@ mod tests {
         assert_eq!(settings.play_quality, "hires");
         assert_eq!(settings.download_file_name_pattern, "{name}-{singer}-{album}-{quality}-{id}");
         assert_eq!(settings.download_lyric_name_pattern, "{name}-Lyric");
+        assert!(settings.pinned_created_songlists.is_empty());
+        assert!(settings.pinned_subscribed_songlists.is_empty());
     }
 
     #[test]

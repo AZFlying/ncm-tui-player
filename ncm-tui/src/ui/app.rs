@@ -549,6 +549,10 @@ impl<'a> App<'a> {
                     | Command::GoToTop
                     | Command::GoToBottom
                     | Command::Delete
+                    | Command::ToggleSonglistView
+                    | Command::TogglePinSonglist
+                    | Command::MovePinnedSonglistUp
+                    | Command::MovePinnedSonglistDown
                     | Command::SongRemovalDone { .. }
                     | Command::SearchForward(_)
                     | Command::SearchBackward(_)
@@ -653,10 +657,24 @@ impl<'a> App<'a> {
 impl<'a> App<'a> {
     async fn get_command_from_key(&mut self, key_modifiers: KeyModifiers, key_code: KeyCode) {
         let cmd = match key_code {
-            KeyCode::Down => Command::Down,
+            KeyCode::Down => {
+                if key_modifiers.contains(KeyModifiers::SHIFT) {
+                    Command::MovePinnedSonglistDown
+                } else {
+                    Command::Down
+                }
+            },
             KeyCode::Char('j') => Command::Down,
-            KeyCode::Up => Command::Up,
+            KeyCode::Char('J') => Command::MovePinnedSonglistDown,
+            KeyCode::Up => {
+                if key_modifiers.contains(KeyModifiers::SHIFT) {
+                    Command::MovePinnedSonglistUp
+                } else {
+                    Command::Up
+                }
+            },
             KeyCode::Char('k') => Command::Up,
+            KeyCode::Char('K') => Command::MovePinnedSonglistUp,
             KeyCode::Char(' ') => Command::PlayOrPause,
             KeyCode::Enter => {
                 if key_modifiers.contains(KeyModifiers::ALT) {
@@ -693,6 +711,8 @@ impl<'a> App<'a> {
             KeyCode::Char('=') => Command::VolumeUp,
             KeyCode::Char('n') => Command::NewOrCollect,
             KeyCode::Char('d') => Command::Delete,
+            KeyCode::Char('c') => Command::ToggleSonglistView,
+            KeyCode::Char('p') => Command::TogglePinSonglist,
             //
             KeyCode::Tab => Command::NextPanel,
             KeyCode::BackTab => Command::PrevPanel,

@@ -45,6 +45,13 @@ pub enum Command {
     CreateSonglist(String),
     /// 按名删除歌单（命令路径，需确认）
     DeleteSonglistByName(String),
+    /// 歌单屏切换左列表「我创建的/我收藏的」视图（仅 c 键路径，无 :命令）
+    ToggleSonglistView,
+    /// 歌单屏置顶/取消置顶高亮歌单（仅 p 键路径，无 :命令）
+    TogglePinSonglist,
+    /// 置顶歌单上移/下移（Shift+K/↑、Shift+J/↓，仅快捷键路径）
+    MovePinnedSonglistUp,
+    MovePinnedSonglistDown,
     /// n 键（快捷键路径，按屏幕分派：主界面=收藏当前歌曲入口，歌单屏=新建歌单入口）
     NewOrCollect,
     /// 删除/移除（快捷键路径，由歌单屏按焦点解释：左侧=删歌单，右侧=移除光标歌曲）

@@ -165,6 +165,16 @@ impl<'a> Controller for SonglistsScreen<'a> {
                 }
             },
 
+            // 切换左列表「我创建的/我收藏的」视图，任意焦点状态下均生效
+            (ToggleSonglistView, _) => {
+                self.songlist_candidates_panel.handle_event(cmd).await?;
+            },
+
+            // 置顶/取消置顶高亮歌单、调整置顶顺序（仅左面板聚焦时生效）
+            (TogglePinSonglist | MovePinnedSonglistUp | MovePinnedSonglistDown, SonglistCandidatesOutside | SonglistCandidatesInside) => {
+                self.songlist_candidates_panel.handle_event(cmd).await?;
+            },
+
             //
             (GoToTop | GoToBottom, SonglistCandidatesOutside | SonglistCandidatesInside) => {
                 self.songlist_candidates_panel.handle_event(cmd).await?;

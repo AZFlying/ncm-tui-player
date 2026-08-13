@@ -34,8 +34,11 @@ impl<'a> HelpScreen<'a> {
             Search Backward:                        {}\n\
             New Songlist (Songlists) / Collect (Main): {}\n\
             Delete Songlist / Remove Song:          {}\n\
+            Switch Created/Subscribed Songlists:    {}\n\
+            Pin/Unpin Highlighted Songlist:         {}\n\
+            Move Pinned Songlist:                   {}\n\
             Quit:                                   {}",
-            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "9", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "q",
+            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "9", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "c", "p", "Shift+J/K 或 Shift+↓/↑", "q",
         ));
         let normal_mode_help_page = Paragraph::new(normal_mode_help_text)
             .block(Block::default().title("普通模式").borders(Borders::ALL))
