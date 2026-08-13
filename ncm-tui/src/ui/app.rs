@@ -36,6 +36,7 @@ struct CompletionState {
 /// 待确认操作，按 y 执行、其余任意键取消
 enum PendingConfirm {
     DeleteSonglist { id: u64, name: String },
+    UnsubscribeSonglist { id: u64, name: String },
     RemoveSong { songlist_id: u64, song_id: u64, song_name: String },
 }
 
@@ -501,6 +502,10 @@ impl<'a> App<'a> {
                         },
                     }
                 },
+                Command::UnsubscribeSonglist { id, name } => {
+                    self.pending_confirm = Some(PendingConfirm::UnsubscribeSonglist { id, name: name.clone() });
+                    self.command_line.set_content(format!("取消收藏《{}》？[y/N]", name).as_str());
+                },
                 Command::RemoveSongFromSonglist { songlist_id, songlist_name, song_id, song_name } => {
                     self.pending_confirm = Some(PendingConfirm::RemoveSong { songlist_id, song_id, song_name: song_name.clone() });
                     self.command_line.set_content(format!("从《{}》移除《{}》？[y/N]", songlist_name, song_name).as_str());
@@ -549,6 +554,10 @@ impl<'a> App<'a> {
                     | Command::GoToTop
                     | Command::GoToBottom
                     | Command::Delete
+                    | Command::ToggleSonglistView
+                    | Command::TogglePinSonglist
+                    | Command::MovePinnedSonglistUp
+                    | Command::MovePinnedSonglistDown
                     | Command::SongRemovalDone { .. }
                     | Command::SearchForward(_)
                     | Command::SearchBackward(_)
@@ -653,10 +662,24 @@ impl<'a> App<'a> {
 impl<'a> App<'a> {
     async fn get_command_from_key(&mut self, key_modifiers: KeyModifiers, key_code: KeyCode) {
         let cmd = match key_code {
-            KeyCode::Down => Command::Down,
+            KeyCode::Down => {
+                if key_modifiers.contains(KeyModifiers::SHIFT) {
+                    Command::MovePinnedSonglistDown
+                } else {
+                    Command::Down
+                }
+            },
             KeyCode::Char('j') => Command::Down,
-            KeyCode::Up => Command::Up,
+            KeyCode::Char('J') => Command::MovePinnedSonglistDown,
+            KeyCode::Up => {
+                if key_modifiers.contains(KeyModifiers::SHIFT) {
+                    Command::MovePinnedSonglistUp
+                } else {
+                    Command::Up
+                }
+            },
             KeyCode::Char('k') => Command::Up,
+            KeyCode::Char('K') => Command::MovePinnedSonglistUp,
             KeyCode::Char(' ') => Command::PlayOrPause,
             KeyCode::Enter => {
                 if key_modifiers.contains(KeyModifiers::ALT) {
@@ -693,6 +716,8 @@ impl<'a> App<'a> {
             KeyCode::Char('=') => Command::VolumeUp,
             KeyCode::Char('n') => Command::NewOrCollect,
             KeyCode::Char('d') => Command::Delete,
+            KeyCode::Char('c') => Command::ToggleSonglistView,
+            KeyCode::Char('p') => Command::TogglePinSonglist,
             //
             KeyCode::Tab => Command::NextPanel,
             KeyCode::BackTab => Command::PrevPanel,
@@ -832,6 +857,20 @@ impl<'a> App<'a> {
                         player.lock().await.songlists_mut().retain(|sl| sl.id != id);
                         command_queue.lock().await.push_back(Command::RefreshPlaylist);
                         self.command_line.set_content(format!("已删除歌单《{}》", name).as_str());
+                    },
+                    Err(err) => self.command_line.set_content(err.to_string().as_str()),
+                }
+            },
+            Some(PendingConfirm::UnsubscribeSonglist { id, name }) => {
+                let result = {
+                    let ncm_client_guard = ncm_client.lock().await;
+                    ncm_client_guard.unsubscribe_songlist(id).await
+                };
+                match result {
+                    Ok(()) => {
+                        player.lock().await.songlists_mut().retain(|sl| sl.id != id);
+                        command_queue.lock().await.push_back(Command::RefreshPlaylist);
+                        self.command_line.set_content(format!("已取消收藏《{}》", name).as_str());
                     },
                     Err(err) => self.command_line.set_content(err.to_string().as_str()),
                 }
