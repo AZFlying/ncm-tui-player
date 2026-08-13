@@ -52,6 +52,8 @@ pub enum Command {
     /// 置顶歌单上移/下移（Shift+K/↑、Shift+J/↓，仅快捷键路径）
     MovePinnedSonglistUp,
     MovePinnedSonglistDown,
+    /// 取消收藏歌单（歌单屏 d 键路径，携带 id 与名称直接进入确认流）
+    UnsubscribeSonglist { id: u64, name: String },
     /// n 键（快捷键路径，按屏幕分派：主界面=收藏当前歌曲入口，歌单屏=新建歌单入口）
     NewOrCollect,
     /// 删除/移除（快捷键路径，由歌单屏按焦点解释：左侧=删歌单，右侧=移除光标歌曲）

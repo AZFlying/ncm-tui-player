@@ -33,7 +33,7 @@ impl<'a> HelpScreen<'a> {
             Search Forward:                         {}\n\
             Search Backward:                        {}\n\
             New Songlist (Songlists) / Collect (Main): {}\n\
-            Delete Songlist / Remove Song:          {}\n\
+            Delete / Unsubscribe / Remove:          {}\n\
             Switch Created/Subscribed Songlists:    {}\n\
             Pin/Unpin Highlighted Songlist:         {}\n\
             Move Pinned Songlist:                   {}\n\

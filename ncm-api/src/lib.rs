@@ -547,6 +547,23 @@ impl NcmClient {
             Err(anyhow!("failed to delete songlist {}, code {:?}", songlist_id, response["code"]))
         }
     }
+
+    /// 取消收藏（订阅）歌单
+    pub async fn unsubscribe_songlist(&self, songlist_id: u64) -> Result<()> {
+        let response = self
+            .http_client
+            .post(format!("{}/playlist/subscribe?t=2&id={}", self.api_url, songlist_id))
+            .form(&[("cookie", &self.cookie)])
+            .send()
+            .await?;
+
+        let response: Value = serde_json::from_slice(&response.bytes().await?)?;
+        if response["code"].as_u64() == Some(200) {
+            Ok(())
+        } else {
+            Err(anyhow!("failed to unsubscribe songlist {}, code {:?}", songlist_id, response["code"]))
+        }
+    }
 }
 
 // 歌曲 api
