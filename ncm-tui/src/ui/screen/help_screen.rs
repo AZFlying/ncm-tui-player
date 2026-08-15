@@ -44,7 +44,7 @@ impl<'a> HelpScreen<'a> {
             *Switch To Command Line Mode:           {}\n\
             Search Forward:                         {}\n\
             Search Backward:                        {}\n\
-            New Songlist (Songlists) / Collect (Main): {}\n\
+            New Songlist / Collect:                 {}\n\
             Delete / Unsubscribe / Remove:          {}\n\
             Switch Created/Subscribed Songlists:    {}\n\
             Pin/Unpin Highlighted Songlist:         {}\n\
@@ -62,7 +62,7 @@ impl<'a> HelpScreen<'a> {
             Go To Help Screen (Here):               {}\n\
             Go To Login Screen:                     {}\n\
             Logout:                                 {}\n\
-            Set Volume:                             {} (e.g. `vol 20` will set volume at 20%)\n\
+            Set Volume:                             {}\n\
             Mute:                                   {}\n\
             Set Play Mode:                          {}\n\
             |_ single play mode:                    {}\n\
@@ -73,16 +73,16 @@ impl<'a> HelpScreen<'a> {
             Play Previous Song:                     {}\n\
             Like Cursor Song:                       {}\n\
             Unlike Cursor Song:                     {}\n\
-            Start Auto Play:                        {} (Only under `list repeat mode` or `shuffle mode`)\n\
+            Start Auto Play:                        {}\n\
             Download Selected Song:                 {}\n\
             Download Selected Playlist:             {}\n\
             Jump To Current Song In Playlist:       {}\n\
             Jump To Top:                            {}\n\
             Jump To Bottom:                         {}\n\
-            Collect Cursor Song To Songlist:        {} (候选列表自动展开)\n\
-            Uncollect Cursor Song From Songlist:    {} (候选列表自动展开)\n\
+            Collect Cursor Song To Songlist:        {}\n\
+            Uncollect Cursor Song From Songlist:    {}\n\
             Create Songlist:                        {}\n\
-            Delete Songlist:                        {} (候选列表自动展开)\n\
+            Delete Songlist:                        {}\n\
             Remove Cursor Song From Playlist:       {}\n\
             Search Forward:                         {}\n\
             Search Backward:                        {}",
