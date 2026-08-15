@@ -17,6 +17,8 @@ pub enum Command {
     StartPlay,
     NextSong,
     PrevSong,
+    /// 将主界面高亮歌曲加入下一首播放
+    AddToPlayNext,
     /// 喜欢/取消喜欢光标所在歌曲，None 为切换
     SetSongLiked(Option<bool>),
     SearchForward(Vec<String>),
