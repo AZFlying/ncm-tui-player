@@ -28,6 +28,8 @@ pub struct Player {
     current_playlist: Vec<Song>, // TODO: 优化为指针
     //
     play_index_history_stack: Vec<usize>, // 历史记录，保存播放的歌曲在 playlist 中的 index，栈顶为当前播放
+    play_next_stack: Vec<usize>, // 后加入者先播放
+    resume_song_index: Option<usize>, // 插播结束后从该歌曲的下一首恢复
     //
     current_song_index: Option<usize>,
     current_song: Option<Song>,
@@ -62,6 +64,8 @@ impl Player {
             current_playlist_id: None,
             current_playlist: Vec::new(),
             play_index_history_stack: Vec::new(),
+            play_next_stack: Vec::new(),
+            resume_song_index: None,
             current_song_index: None,
             current_song: None,
             pending_scrobble: None,
@@ -101,6 +105,9 @@ impl Player {
     }
 
     pub fn set_play_mode(&mut self, mode: PlayMode) {
+        if !matches!(&mode, PlayMode::ListRepeat | PlayMode::Shuffle) {
+            self.clear_play_next();
+        }
         self.play_mode = mode;
     }
 
@@ -124,7 +131,21 @@ impl Player {
         self.current_playlist_id
     }
 
-    /// 从当前播放列表移除歌曲并修正 current_song_index，返回是否移除成功
+    /// 将当前播放列表中的歌曲加入下一首播放，后加入者先播放
+    pub fn add_to_play_next(&mut self, song_id: u64) -> Result<()> {
+        if !matches!(&self.play_mode, PlayMode::ListRepeat | PlayMode::Shuffle) {
+            return Err(anyhow!("加入下一首播放仅在列表循环和随机播放模式下可用"));
+        }
+        if !matches!(self.play_state, PlayState::Playing | PlayState::Paused | PlayState::Ended) {
+            return Err(anyhow!("当前没有正在播放的歌曲"));
+        }
+        let index = self.current_playlist.iter().position(|song| song.id == song_id)
+            .ok_or_else(|| anyhow!("高亮歌曲不在当前播放列表中"))?;
+        push_play_next(&mut self.play_next_stack, &mut self.resume_song_index, self.current_song_index, index);
+        Ok(())
+    }
+
+    /// 从当前播放列表移除歌曲并修正播放索引，返回是否移除成功
     pub fn remove_from_current_playlist(&mut self, song_id: u64) -> bool {
         let Some(pos) = self.current_playlist.iter().position(|song| song.id == song_id) else {
             return false;
@@ -133,6 +154,12 @@ impl Player {
         if let Some(index) = self.current_song_index {
             self.current_song_index = adjusted_index_after_removal(self.current_playlist.len(), index, pos);
         }
+        adjust_play_next_after_removal(
+            &mut self.play_next_stack,
+            &mut self.resume_song_index,
+            self.current_playlist.len(),
+            pos,
+        );
         true
     }
 
@@ -206,6 +233,7 @@ impl Player {
             self.current_playlist_id = Some(songlist.id);
             self.current_playlist = songlist.songs.clone();
             self.play_index_history_stack = Vec::new();
+            self.clear_play_next();
             self.current_song_index = if self.current_playlist.is_empty() { None } else { Some(0) };
 
             Ok(())
@@ -222,6 +250,7 @@ impl Player {
         self.current_playlist_id = None; // 游离歌单无服务端 id，置 None 以跳过 scrobble
         self.current_playlist = songlist.songs;
         self.play_index_history_stack = Vec::new();
+        self.clear_play_next();
         self.current_song_index = if self.current_playlist.is_empty() { None } else { Some(0) };
     }
 
@@ -320,6 +349,7 @@ impl Player {
     /// 立刻播放指定歌曲
     pub async fn play_particularly_now<'c>(&mut self, index_to_play: usize, ncm_client_guard: MutexGuard<'c, NcmClient>) -> Result<()> {
         if index_to_play < self.current_playlist.len() {
+            self.clear_play_next();
             self.play_state = PlayState::Playing;
             self.current_song_index = Some(index_to_play);
             self.current_song = Some(self.current_playlist[index_to_play].clone());
@@ -335,12 +365,14 @@ impl Player {
         if !self.current_playlist.is_empty() {
             match self.play_mode {
                 PlayMode::ListRepeat => {
+                    self.clear_play_next();
                     self.current_song_index = Some(0);
                     self.current_song = Some(self.current_playlist[0].clone());
                     self.play_next(ncm_client_guard).await?;
                     Ok(())
                 },
                 PlayMode::Shuffle => {
+                    self.clear_play_next();
                     let index = thread_rng().gen_range(0..self.current_playlist.len());
                     self.current_song_index = Some(index);
                     self.current_song = Some(self.current_playlist[index].clone());
@@ -416,6 +448,16 @@ impl Player {
     /// 根据模式更新下一首播放的歌曲
     /// 更新 self.current_song & self.current_song_index
     fn update_next_to_play(&mut self) {
+        if let Some(index) = take_play_next(
+            &mut self.play_next_stack,
+            &mut self.resume_song_index,
+            &mut self.current_song_index,
+        ) {
+            self.current_song_index = Some(index);
+            self.current_song = Some(self.current_playlist[index].clone());
+            return;
+        }
+
         self.current_song = match self.play_mode {
             PlayMode::Single => None,
             PlayMode::SingleRepeat => self.current_song.clone(),
@@ -441,6 +483,11 @@ impl Player {
                 }
             },
         };
+    }
+
+    fn clear_play_next(&mut self) {
+        self.play_next_stack.clear();
+        self.resume_song_index = None;
     }
 
     /// 播放下一首
@@ -534,6 +581,33 @@ impl Player {
     }
 }
 
+fn push_play_next(stack: &mut Vec<usize>, resume_index: &mut Option<usize>, current_index: Option<usize>, index: usize) {
+    if resume_index.is_none() {
+        *resume_index = current_index;
+    }
+    stack.push(index);
+}
+
+/// 有待播歌曲时返回其索引；待播耗尽时恢复正常播放位置
+fn take_play_next(stack: &mut Vec<usize>, resume_index: &mut Option<usize>, current_index: &mut Option<usize>) -> Option<usize> {
+    stack.pop().or_else(|| {
+        if let Some(index) = resume_index.take() {
+            *current_index = Some(index);
+        }
+        None
+    })
+}
+
+fn adjust_play_next_after_removal(stack: &mut Vec<usize>, resume_index: &mut Option<usize>, len_after: usize, removed_pos: usize) {
+    stack.retain(|index| *index != removed_pos);
+    for index in stack {
+        if *index > removed_pos {
+            *index -= 1;
+        }
+    }
+    *resume_index = (*resume_index).and_then(|index| adjusted_index_after_removal(len_after, index, removed_pos));
+}
+
 fn completed_scrobble(song: Option<(u64, u64)>, source_id: Option<u64>) -> Option<(u64, u64, u64)> {
     let ((song_id, duration_ms), source_id) = song.zip(source_id)?;
     let seconds = duration_ms / 1000;
@@ -558,13 +632,40 @@ fn adjusted_index_after_removal(len_after: usize, index: usize, removed_pos: usi
 
 #[cfg(test)]
 mod tests {
-    use super::{adjusted_index_after_removal, completed_scrobble};
+    use super::{adjust_play_next_after_removal, adjusted_index_after_removal, completed_scrobble, push_play_next, take_play_next};
 
     #[test]
     fn builds_scrobble_only_with_song_and_source() {
         assert_eq!(completed_scrobble(Some((1, 291_999)), Some(2)), Some((1, 2, 291)));
         assert_eq!(completed_scrobble(Some((1, 291_999)), None), None);
         assert_eq!(completed_scrobble(Some((1, 999)), Some(2)), None);
+    }
+
+    #[test]
+    fn plays_added_songs_lifo_then_resumes() {
+        let mut stack = Vec::new();
+        let mut resume = None;
+        let mut current = Some(0);
+
+        push_play_next(&mut stack, &mut resume, current, 3); // D
+        push_play_next(&mut stack, &mut resume, current, 2); // C
+        assert_eq!(take_play_next(&mut stack, &mut resume, &mut current), Some(2));
+
+        push_play_next(&mut stack, &mut resume, current, 4); // C 播放期间加入 E
+        assert_eq!(take_play_next(&mut stack, &mut resume, &mut current), Some(4));
+        assert_eq!(take_play_next(&mut stack, &mut resume, &mut current), Some(3));
+        assert_eq!(take_play_next(&mut stack, &mut resume, &mut current), None);
+        assert_eq!(current, Some(0));
+        assert_eq!(resume, None);
+    }
+
+    #[test]
+    fn adjusts_play_next_after_removal() {
+        let mut stack = vec![1, 3, 1, 4];
+        let mut resume = Some(3);
+        adjust_play_next_after_removal(&mut stack, &mut resume, 4, 1);
+        assert_eq!(stack, vec![2, 3]);
+        assert_eq!(resume, Some(2));
     }
 
     #[test]

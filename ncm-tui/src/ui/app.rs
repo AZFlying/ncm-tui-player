@@ -367,6 +367,18 @@ impl<'a> App<'a> {
                         command_queue.lock().await.push_back(Command::SyncPlaylistCursor);
                     }
                 },
+                Command::AddToPlayNext => {
+                    if self.current_screen != ScreenEnum::Main {
+                        self.command_line.set_content("仅主界面支持加入下一首播放");
+                    } else if let Some(song) = self.main_screen.selected_song() {
+                        match player.lock().await.add_to_play_next(song.id) {
+                            Ok(()) => self.command_line.set_content(format!("已加入下一首播放：《{}》", song.name).as_str()),
+                            Err(err) => self.command_line.set_content(err.to_string().as_str()),
+                        }
+                    } else {
+                        self.command_line.set_content("当前播放列表没有高亮歌曲");
+                    }
+                },
                 Command::SetSongLiked(requested) => {
                     let song = match self.current_screen {
                         ScreenEnum::Main => self.main_screen.selected_song(),
@@ -691,6 +703,7 @@ impl<'a> App<'a> {
             KeyCode::Esc => Command::Esc,
             KeyCode::Right => Command::NextPanel,
             KeyCode::Char('l') => Command::SetSongLiked(None),
+            KeyCode::Char('e') => Command::AddToPlayNext,
             KeyCode::Left => Command::PrevPanel,
             KeyCode::Char('h') => Command::PrevPanel,
             KeyCode::Char('1') => Command::GotoScreen(ScreenEnum::Main),

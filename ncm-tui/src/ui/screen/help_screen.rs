@@ -32,6 +32,7 @@ impl<'a> HelpScreen<'a> {
             Down:                                   {}\n\
             Play/Pause:                             {}\n\
             Toggle Like Cursor Song:                {}\n\
+            Add Highlighted Song To Play Next:      {}\n\
             Previous Panel:                         {}\n\
             Next Panel:                             {}\n\
             Go To Main Screen:                      {}\n\
@@ -50,7 +51,7 @@ impl<'a> HelpScreen<'a> {
             Pin/Unpin Highlighted Songlist:         {}\n\
             Move Pinned Songlist:                   {}\n\
             Quit:                                   {}",
-            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "←", "→", "1", "9", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "c", "p", "Shift+J/K 或 Shift+↓/↑", "q",
+            "↑ / k", "↓ / j", "\u{2423} (Space)", "l", "e", "←", "→", "1", "9", "0 / F1", ">", "<", "-", "=", ":", "/", "?", "n", "d", "c", "p", "Shift+J/K 或 Shift+↓/↑", "q",
         ));
 
         let commandline_mode_help_text = Text::from(format!(
